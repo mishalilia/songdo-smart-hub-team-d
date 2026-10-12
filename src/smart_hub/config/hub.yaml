@@ -1,0 +1,57 @@
+# Shared parameters (assignment 3.3 and 17). Ranges are validated at node startup.
+# Record the final parameter dump with every run.
+/**:
+  ros__parameters:
+    command_timeout_sec: 0.5
+    crossing_clear_sec: 2.0
+    robot_speed_limit: 0.25
+    bus_speed_limit: 0.40
+
+passenger_detector:
+  ros__parameters:
+    queue_confidence_min: 0.5
+    stale_timeout_sec: 1.0
+
+demand_predictor:
+  ros__parameters:
+    prediction_horizon_sec: 30
+    history_window_sec: 60
+    model_path: ''
+
+hub_coordinator:
+  ros__parameters:
+    dispatch_high: 6.0
+    dispatch_low: 4.0
+    dispatch_cooldown_sec: 30.0
+
+parking_manager:
+  ros__parameters:
+    reservation_ttl_sec: 30.0
+    stale_timeout_sec: 1.0
+    debounce_sec: 0.5
+
+traffic_monitor:
+  ros__parameters:
+    congestion_density_threshold: 0.70
+    slow_speed_ratio: 0.40
+    window_sec: 5.0
+
+route_planner:
+  ros__parameters:
+    replan_improvement_ratio: 0.15
+    use_edge_states: false
+
+robot_manager:
+  ros__parameters:
+    arrival_tolerance_m: 0.20
+    ready_timeout_sec: 20.0
+
+bus_manager:
+  ros__parameters:
+    pose_tolerance_m: 0.20
+    yaw_tolerance_rad: 0.17
+    boarding_dwell_sec: 8.0
+
+safety_supervisor:
+  ros__parameters:
+    max_angular_rad_s: 0.8

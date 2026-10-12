@@ -1,0 +1,12 @@
+# /bus/dock; server: bus_manager
+string bus_id
+string bay_id               # B for baseline
+float32 max_duration_sec
+---
+bool success
+string final_state
+string reason
+---
+string phase
+float32 distance_remaining_m
+float32 eta_sec

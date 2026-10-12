@@ -1,0 +1,8 @@
+# S3 — bus arrival and docking (assignment 10.3). Owner: M4
+scenario_id: S3
+duration_sec: 120
+bus: {id: bus1, start_node: A, bay: B}
+variants: [nominal, pedestrian_before_entry, blocked_bay, cancel_during_approach, stale_bus_pose]
+expected:
+  position_error_m: 0.20
+  cancel_to_zero_cmd_sec: 0.5

@@ -1,0 +1,11 @@
+# server: route_planner  (/route/compute)
+string start_node
+string goal_node
+string agent_type           # robot, bus, car
+string[] excluded_edges
+---
+bool success
+string[] node_ids
+geometry_msgs/Point[] waypoints
+float32 estimated_cost_sec
+string reason

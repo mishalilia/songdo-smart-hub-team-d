@@ -1,0 +1,13 @@
+# /robot/navigate_to; server: robot_manager
+string request_id
+string goal_node
+float32 max_duration_sec
+---
+bool success
+string final_node
+float32 final_error_m
+string reason
+---
+string phase
+float32 progress
+float32 distance_remaining_m

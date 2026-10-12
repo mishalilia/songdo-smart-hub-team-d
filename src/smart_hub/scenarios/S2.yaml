@@ -1,0 +1,9 @@
+# S2 — AI demand prediction (assignment 9). Owner: M2 (dispatch: M3)
+scenario_id: S2
+duration_sec: 360
+episodes: rising_demand   # rising_demand | steady | noisy_threshold
+events:
+  - {t: 120.0, type: freeze_camera, duration_sec: 5.0}
+expected:
+  max_outstanding_dock_goals: 1
+  dispatch_from_invalid_forecast: 0

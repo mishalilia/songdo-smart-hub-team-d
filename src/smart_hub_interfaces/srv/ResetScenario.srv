@@ -1,0 +1,8 @@
+# server: scenario_runner  (/scenario/reset)
+string scenario_id
+uint32 seed
+bool preserve_logs
+---
+bool success
+string run_id
+string reason

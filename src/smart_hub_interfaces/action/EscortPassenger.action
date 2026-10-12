@@ -1,0 +1,15 @@
+# /robot/escort; server: robot_manager
+string request_id
+string passenger_id         # anonymous simulation identifier
+string pickup_node          # R
+string destination_node     # D
+float32 max_duration_sec
+---
+bool success
+string final_node
+float32 travelled_distance_m
+string reason
+---
+string phase
+float32 progress            # 0..1; define across replans
+float32 distance_remaining_m

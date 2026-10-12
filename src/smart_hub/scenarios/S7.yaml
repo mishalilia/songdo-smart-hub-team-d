@@ -1,0 +1,9 @@
+# S7 — autonomous robot passenger escort (assignment 14.3). Owner: M7
+scenario_id: S7
+duration_sec: 240
+mission: {request_id: demo-01, passenger_id: P01, pickup: R, destination: D}
+variants: [nominal, no_ready, obstacle_before_crossing, cancel_while_moving,
+           second_goal_while_busy, unreachable_destination, odometry_freeze]
+expected:
+  destination_error_m: 0.20
+  feedback_min_hz: 2.0

@@ -1,0 +1,6 @@
+# server: safety_supervisor  (/safety/clear_stop)
+string operator_id
+string acknowledgement
+---
+bool success
+string reason

@@ -1,0 +1,13 @@
+# S1 — passenger detection and queue counting (assignment 8.3). Owner: M1
+scenario_id: S1
+duration_sec: 40
+events:
+  - {t: 5.0,  type: spawn_queue_tracks, count: 3}
+  - {t: 10.0, type: spawn_queue_tracks, count: 2}
+  - {t: 15.0, type: remove_queue_tracks, count: 1}
+  - {t: 20.0, type: crossing_pedestrian, duration_sec: 4.0}
+  - {t: 30.0, type: freeze_camera}
+expected:
+  stable_counts: [0, 3, 5, 4]
+  invalid_after_freeze_within_sec: 1.2
+  crossing_conflicts: 0

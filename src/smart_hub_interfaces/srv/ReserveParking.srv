@@ -1,0 +1,11 @@
+# server: parking_manager  (/parking/reserve_slot)
+string request_id
+string vehicle_id
+string preferred_slot       # empty means any permitted slot
+float32 ttl_sec             # accept 5..120; default client value 30
+---
+bool success
+string reservation_id
+string slot_id
+builtin_interfaces/Time expires_at
+string reason

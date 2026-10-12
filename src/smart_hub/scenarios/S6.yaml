@@ -1,0 +1,9 @@
+# S6 — intelligent route replanning (assignment 13.3). Owner: M6
+scenario_id: S6
+duration_sec: 90
+agent: {type: car, start: A, goal: E}
+events:
+  - {t: 10.0, type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}   # blocks Cs-J
+  - {t: 30.0, type: raise_density, edges: [A-Cs, Cs-J, E-J], density: 0.8}
+  - {t: 50.0, type: block_edges, edges: [Cs-J, B-Cn]}                         # NO_ROUTE
+  - {t: 70.0, type: restore_all}

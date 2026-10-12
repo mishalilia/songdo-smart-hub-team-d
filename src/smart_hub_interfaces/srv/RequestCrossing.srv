@@ -1,0 +1,8 @@
+# server: hub_coordinator  (/crossing/request)
+string requester_id
+string operation            # ACQUIRE, RENEW, RELEASE
+string token                # empty for ACQUIRE
+---
+bool granted
+string token
+string reason

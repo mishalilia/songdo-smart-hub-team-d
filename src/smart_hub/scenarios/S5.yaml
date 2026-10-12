@@ -1,0 +1,12 @@
+# S5 — congestion detection (assignment 12). Owner: M6
+scenario_id: S5
+duration_sec: 75
+initial_vehicles:
+  - {id: car1, edge: Cs-J, speed_mps: 0.35}
+events:
+  - {t: 20.0, type: spawn_slow_vehicles, edge: Cs-J, count: 3}
+  - {t: 45.0, type: freeze_vehicle_source, vehicle: car1}
+  - {t: 60.0, type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
+expected:
+  congested_within_sec: 2.0
+  unknown_after_loss_within_sec: 1.2
