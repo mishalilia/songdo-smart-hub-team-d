@@ -1,0 +1,15 @@
+# Scalability test (midterm): load grows while the robot drives scripted routes.
+# Scripted agents do not use the crossing lock, so robot trips on shared roads finish
+# before the background cars appear. Watch the dashboard for data age and rates under load.
+scenario_id: SCALE
+duration_sec: 180
+events:
+  - {t: 2.0,   type: agent_route, agent: robot1, route: [R, W, Cn, Cs, J, D]}
+  - {t: 10.0,  type: spawn_queue_tracks, count: 8}
+  - {t: 30.0,  type: spawn_crowd, count: 25}
+  - {t: 60.0,  type: spawn_crowd, count: 25}
+  - {t: 65.0,  type: agent_route, agent: robot1, route: [D, J, Cs, Cn, W, R]}
+  - {t: 120.0, type: spawn_random_cars, count: 10}
+  - {t: 130.0, type: spawn_crowd, count: 50}
+  - {t: 140.0, type: agent_route, agent: robot1, route: [R, W]}
+  - {t: 160.0, type: agent_route, agent: robot1, route: [W, R]}

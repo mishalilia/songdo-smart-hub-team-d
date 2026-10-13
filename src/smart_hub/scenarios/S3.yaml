@@ -1,8 +1,18 @@
 # S3 — bus arrival and docking (assignment 10.3). Owner: M4
+# Nominal docking: bus starts at A, four passengers wait, DockBus goal at 2 s.
+# Other runs (assignment 10.3): pedestrian before entry, blocked bay, cancel during
+# approach, stale bus pose — enable the commented events one at a time.
 scenario_id: S3
 duration_sec: 120
-bus: {id: bus1, start_node: A, bay: B}
-variants: [nominal, pedestrian_before_entry, blocked_bay, cancel_during_approach, stale_bus_pose]
+bus: {start_node: A}
+events:
+  - {t: 1.0,  type: clear_stop_request}            # startup latch -> ready (16.3)
+  - {t: 0.0, type: spawn_queue_tracks, count: 4}
+  - {t: 2.0, type: dock_request, bus_id: bus1, bay_id: B, max_duration_sec: 240.0}
+  # - {t: 8.0,  type: crossing_pedestrian, duration_sec: 6.0}              # pedestrian before entry
+  # - {t: 2.0,  type: place_obstacle, id: bay_block, center: [8.0, 4.0], radius: 0.35}  # blocked bay
+  # - {t: 10.0, type: cancel_goal, target: dock}                           # cancel during approach
+  # - {t: 10.0, type: freeze_vehicle_source, vehicle: bus1}                # stale bus pose
 expected:
   position_error_m: 0.20
   cancel_to_zero_cmd_sec: 0.5

@@ -1,0 +1,19 @@
+# Midterm demonstration: robot and bus motion, boarding, IoT devices, faults, load.
+# Simulator-only (scripted routes); works without the mission / safety nodes.
+scenario_id: DEMO
+duration_sec: 130
+initial_slots: {P1: OCCUPIED, P2: FREE, P3: FREE}
+events:
+  - {t: 0.0,   type: spawn_queue_tracks, count: 5}
+  - {t: 2.0,   type: agent_route, agent: robot1, route: [R, W, Cn, Cs, J, D]}
+  - {t: 25.0,  type: agent_route, agent: bus1, route: [A, N, Cn, B]}
+  - {t: 55.0,  type: door, open: true}               # boards up to 4 passengers in 8 s
+  - {t: 66.0,  type: door, open: false}
+  - {t: 70.0,  type: crossing_pedestrian, duration_sec: 5.0}
+  - {t: 80.0,  type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
+  - {t: 85.0,  type: barrier, open: true}
+  - {t: 90.0,  type: disconnect_slot_sensor, slot: P3}
+  - {t: 92.0,  type: set_slot, slot: P2, occupied: true}
+  - {t: 95.0,  type: barrier, open: false}
+  - {t: 100.0, type: spawn_crowd, count: 30}
+  - {t: 105.0, type: spawn_random_cars, count: 8}

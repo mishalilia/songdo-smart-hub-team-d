@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Hub Control</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Songdo Smart Hub</h1>
+  <nav><a class="active" href="/">Control</a><a href="/dashboard">Dashboard</a></nav>
+  <span class="run" id="run">–</span>
+</header>
+<main class="control">
+  <section class="card">
+    <canvas id="map" width="1200" height="860"></canvas>
+    <p class="hint">Roads coloured by edge state (grey normal, amber congested, red blocked,
+      dark unknown). Dashed blue: robot links. Crossing C: green free, amber owned, red
+      pedestrian, grey unknown.</p>
+  </section>
+  <div class="side">
+    <section class="card">
+      <button class="danger" onclick="command('estop')">EMERGENCY STOP</button>
+      <div class="row" style="margin-top:8px">
+        <button onclick="command('clear_stop')">Clear stop</button>
+        <span id="safety"></span>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Scenario</h2>
+      <div class="row">
+        <select id="scenario">
+          <option>S1</option><option>S2</option><option>S3</option><option>S4</option>
+          <option>S5</option><option>S6</option><option>S7</option><option>S8</option>
+          <option>S9</option><option selected>DEMO</option><option>SCALE</option>
+        </select>
+        <input id="seed" type="number" value="42" aria-label="seed">
+        <button class="primary"
+          onclick="command('reset', {scenario: $('#scenario').value, seed: $('#seed').value})">
+          Reset &amp; run</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Simulation</h2>
+      <div class="row">
+        <select id="simAgent" aria-label="agent"><option value="robot1">robot1</option>
+          <option value="bus1">bus1</option></select> →
+        <select id="simGoal" aria-label="goal"></select>
+        <button class="primary"
+          onclick="command('sim_route', {agent: $('#simAgent').value, goal: $('#simGoal').value})">
+          Drive (sim)</button>
+      </div>
+      <div class="row">
+        <button onclick="sim({type: 'spawn_queue_tracks', count: 3})">+3 passengers</button>
+        <button onclick="sim({type: 'crossing_pedestrian', duration_sec: 6})">Pedestrian in C</button>
+      </div>
+      <div class="row">
+        <button onclick="sim({type: 'place_obstacle', id: 'O', center: [7, 2], radius: 0.35})">
+          Obstacle O</button>
+        <button onclick="sim({type: 'remove_obstacle', id: 'O'})">Remove O</button>
+        <button onclick="sim({type: 'door', open: true})">Door open</button>
+        <button onclick="sim({type: 'door', open: false})">Door close</button>
+      </div>
+      <div class="row">
+        <button onclick="sim({type: 'freeze_camera', duration_sec: 3})">Freeze camera 3 s</button>
+        <button onclick="sim({type: 'disconnect_slot_sensor', slot: 'P3'})">P3 sensor off</button>
+        <button onclick="sim({type: 'restore_sensors'})">Restore</button>
+      </div>
+      <div class="row">
+        <button onclick="sim({type: 'spawn_random_cars', count: 10})">+10 cars</button>
+        <button onclick="sim({type: 'spawn_crowd', count: 50})">+50 people</button>
+      </div>
+      <p class="hint">Simulation test controls (scenario_runner). "Drive (sim)" moves the agent
+        along a planned route without robot_manager; Escort / Go to below use the real
+        mission nodes.</p>
+    </section>
+    <section class="card">
+      <h2>Robot mission</h2>
+      <div class="row">
+        <select id="pickup" aria-label="pickup"></select> →
+        <select id="dest" aria-label="destination"></select>
+        <button class="primary"
+          onclick="command('escort', {pickup: $('#pickup').value, destination: $('#dest').value})">
+          Escort</button>
+      </div>
+      <div class="row">
+        <button onclick="command('confirm_ready')">Passenger ready</button>
+        <button onclick="command('navigate', {goal: $('#dest').value})">Go to</button>
+        <button onclick="command('cancel')">Cancel</button>
+      </div>
+      <div class="kv" id="mission"></div>
+      <div class="bar" style="margin-top:6px"><div id="progress"></div></div>
+    </section>
+    <section class="card">
+      <h2>Parking &amp; IoT</h2>
+      <div class="row">
+        <input id="car" value="C1" aria-label="vehicle">
+        <select id="slot" aria-label="slot"><option value="">any</option>
+          <option>P1</option><option>P2</option><option>P3</option></select>
+        <button onclick="command('reserve', {vehicle: $('#car').value, slot: $('#slot').value})">
+          Reserve</button>
+      </div>
+      <div class="row">
+        <button onclick="command('barrier', {open: true})">Barrier open</button>
+        <button onclick="command('barrier', {open: false})">Barrier close</button>
+      </div>
+      <div class="kv" id="hub"></div>
+    </section>
+    <section class="card">
+      <h2>Events</h2>
+      <div class="log" id="log"></div>
+    </section>
+  </div>
+</main>
+<script src="hub.js"></script>
+<script>
+let MAP = null, tick = 0;
+const sim = (event) => command('sim', {event});
+const ROBOT_NODES = ['R', 'W', 'Cn', 'Cs', 'J', 'D', 'B', 'U', 'E'];
+for (const n of ROBOT_NODES) {
+  $('#pickup').add(new Option(n, n, n === 'R', n === 'R'));
+  $('#dest').add(new Option(n, n, n === 'D', n === 'D'));
+}
+for (const n of ['R', 'W', 'Cn', 'Cs', 'J', 'D', 'A', 'N', 'B', 'U', 'E']) {
+  $('#simGoal').add(new Option(n, n, n === 'D', n === 'D'));
+}
+
+function render(st) {
+  drawMap($('#map'), MAP, st, tick++);
+  const run = st.run || {};
+  $('#run').textContent = run.run_id ? `${run.scenario} · ${run.run_id}` : 'waiting for run';
+  const s = st.safety;
+  $('#safety').innerHTML = !s ? pill('NO DATA') : s.latched ? pill('STOP ' + s.reason, 'bad')
+    : s.permitted ? pill('MOTION PERMITTED', 'ok') + (s.reason ? ' ' + pill(s.reason, 'warn') : '')
+    : pill('INHIBITED', 'warn');
+  const m = st.mission || {};
+  $('#mission').innerHTML = `<span>Status</span><span>${escapeHtml(m.status || 'idle')}
+      ${m.reason ? '· ' + escapeHtml(m.reason) : ''}</span>
+    <span>Phase</span><span>${escapeHtml(m.phase || '–')}</span>
+    <span>Route</span><span>${escapeHtml(m.route || '–')}</span>
+    <span>Remaining</span><span>${m.remaining != null ? fmt(m.remaining, 2) + ' m' : '–'}</span>`;
+  $('#progress').style.width = ((m.progress || 0) * 100).toFixed(0) + '%';
+  const q = st.queue, c = st.crossing || {}, iot = st.iot || {};
+  const iotMsg = (k) => (iot['iot/' + k] || {}).message || '–';
+  $('#hub').innerHTML = `
+    <span>Queue</span><span>${q && q.valid ? q.count : 'UNKNOWN'}</span>
+    <span>Crossing</span><span>${c.valid ? c.state + (c.owner ? ' · ' + c.owner : '') : 'UNKNOWN'}
+      ${c.pedestrian ? pill('pedestrian', 'bad') : ''}</span>
+    <span>Parking free</span><span>${st.parking ? st.parking.available : '–'}</span>
+    <span>Barrier</span><span>${iotMsg('barrier')}</span>
+    <span>Bus door</span><span>${iotMsg('bus_door')}</span>
+    <span>LEDs</span><span>${['P1', 'P2', 'P3'].map((p) => p + ' ' + iotMsg('led/' + p))
+      .join(', ')}</span>
+    <span>Camera</span><span>${iotMsg('camera')}</span>`;
+  $('#log').innerHTML = (st.events || []).slice().reverse().map((e) =>
+    `<div>${e.t} <b>${escapeHtml(e.event)}</b> ${escapeHtml(e.entity)} ${escapeHtml(e.reason)}</div>`)
+    .join('');
+}
+
+async function loop() {
+  try {
+    if (!MAP) MAP = await getJSON('/api/map');
+    render(await getJSON('/api/state'));
+  } catch (e) { $('#run').textContent = 'disconnected: ' + e.message; }
+  setTimeout(loop, 250);
+}
+loop();
+</script>
+</body>
+</html>

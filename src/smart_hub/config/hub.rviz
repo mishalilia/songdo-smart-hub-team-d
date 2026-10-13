@@ -1,0 +1,53 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 14
+      Offset:
+        X: 6
+        Y: 4
+        Z: 0
+      Color: 80; 80; 80
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Hub
+      Enabled: true
+      Topic:
+        Value: /hub/markers
+        Depth: 10
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: false
+      Show Arrows: false
+      Marker Scale: 0.5
+    - Class: rviz_default_plugins/Image
+      Name: Camera
+      Enabled: false
+      Topic:
+        Value: /camera/image_raw
+        Reliability Policy: Best Effort
+  Global Options:
+    Fixed Frame: map
+    Background Color: 30; 30; 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      X: 6
+      Y: 3.4
+      Scale: 58
+      Angle: 0
+Window Geometry:
+  Width: 1200
+  Height: 800

@@ -15,6 +15,7 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*')),
         (os.path.join('share', package_name, 'scenarios'), glob('scenarios/*.yaml')),
+        (os.path.join('share', package_name, 'web'), glob('web/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -38,6 +39,8 @@ setup(
             'actuator_bridge = smart_hub.actuator_bridge:main',
             'metrics_logger = smart_hub.metrics_logger:main',
             'dashboard_marker_publisher = smart_hub.dashboard_marker_publisher:main',
+            'scalability_benchmark = smart_hub.scalability_benchmark:main',
+            'hub_ui = smart_hub.hub_ui:main',
         ],
     },
 )

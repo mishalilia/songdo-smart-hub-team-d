@@ -6,6 +6,7 @@
     crossing_clear_sec: 2.0
     robot_speed_limit: 0.25
     bus_speed_limit: 0.40
+    congestion_density_threshold: 0.70
 
 passenger_detector:
   ros__parameters:
@@ -32,7 +33,6 @@ parking_manager:
 
 traffic_monitor:
   ros__parameters:
-    congestion_density_threshold: 0.70
     slow_speed_ratio: 0.40
     window_sec: 5.0
 
@@ -55,3 +55,18 @@ bus_manager:
 safety_supervisor:
   ros__parameters:
     max_angular_rad_s: 0.8
+
+metrics_logger:
+  ros__parameters:
+    output_dir: evidence/runs
+
+hub_ui:
+  ros__parameters:
+    host: 0.0.0.0
+    port: 8080
+
+scenario_runner:
+  ros__parameters:
+    pedestrian_noise_m: 0.05
+    vehicle_noise_m: 0.02
+    publish_image: true

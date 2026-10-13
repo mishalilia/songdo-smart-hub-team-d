@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Hub Metrics</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Songdo Smart Hub · Metrics</h1>
+  <nav><a href="/">Control</a><a class="active" href="/dashboard">Dashboard</a></nav>
+  <span class="run" id="run">–</span>
+</header>
+<main class="dash">
+  <section class="card wide">
+    <h2>Run outcome</h2>
+    <div class="tiles" id="tiles"></div>
+  </section>
+  <section class="card">
+    <h2>Latency (ms) vs. assignment targets</h2>
+    <table id="latency"></table>
+    <p class="hint">Targets from assignment 21.3: stop ≤ 200 ms, service p95 &lt; 250 ms,
+      route compute p95 &lt; 250 ms, cancel → zero ≤ 500 ms.</p>
+  </section>
+  <section class="card">
+    <h2>Data age (end-to-end) and rates</h2>
+    <table id="topics"></table>
+    <p class="hint">Age = receipt − observation timestamp. Freshness limit 1000 ms.</p>
+  </section>
+  <section class="card">
+    <h2>Energy</h2>
+    <table id="energy"></table>
+    <p class="hint">Model values (simulation), not measured hardware.</p>
+  </section>
+  <section class="card">
+    <h2>Queue and missions</h2>
+    <table id="service"></table>
+  </section>
+</main>
+<script src="hub.js"></script>
+<script>
+const TARGETS = {STOP_LATCHED: 200, CROSSING_GRANTED: 250, ROUTE_COMPUTED: 250,
+                 ROUTE_FAILED: 250, CANCELED: 500};
+const RATES = {'/hub/queue': 5, '/hub/demand': 1, '/hub/vehicles': 10, '/traffic/edges': 2,
+               '/crossing/state': 10, '/parking/state': 2, '/hub/safety': 10,
+               '/robot/odom': 20, '/sim/pedestrians': 10, '/camera/image_raw': 10};
+
+function target(name) {
+  if (TARGETS[name]) return TARGETS[name];
+  if (name.endsWith('_OK') || name.endsWith('_REJECTED')) return 250;  // service round trip
+  return null;
+}
+
+function render(m) {
+  const run = m.run || {};
+  $('#run').textContent = run.run_id
+    ? `${run.scenario_id} · seed ${run.seed} · ${run.elapsed_sec}s · commit ${run.commit} · cfg ${run.config_sha256}`
+    : 'waiting for metrics_logger';
+  const c = m.counts || {};
+  const tile = (label, v, bad) => `<div class="tile"><div class="v" style="color:${
+    bad ? 'var(--bad)' : 'inherit'}">${v ?? 0}</div><div class="l">${label}</div></div>`;
+  const ok = Number(c.goals_succeeded || 0), done = ok + Number(c.goals_aborted || 0) +
+    Number(c.goals_canceled || 0);
+  $('#tiles').innerHTML = [
+    tile('mission success', done ? `${ok}/${done}` : '–'),
+    tile('collisions', c.collisions, Number(c.collisions) > 0),
+    tile('crossing conflicts', c.crossing_conflicts, Number(c.crossing_conflicts) > 0),
+    tile('safety interventions', c.safety_interventions),
+    tile('reroutes', c.reroutes),
+    tile('crossing grants', c.crossing_grants),
+    tile('goals rejected', c.goals_rejected),
+    tile('boarded', c.boarded),
+  ].join('');
+
+  const lat = Object.entries(m).filter(([k]) => k.startsWith('latency/'))
+    .map(([k, v]) => [k.slice(8), v]);
+  $('#latency').innerHTML = '<tr><th>metric</th><th>n</th><th>p50</th><th>p95</th><th>max</th>' +
+    '<th>target</th></tr>' + lat.map(([k, v]) => {
+      const t = target(k), pass = t == null ? '' : Number(v.p95) <= t;
+      return `<tr><td>${escapeHtml(k)}</td><td class="num">${v.n}</td>
+        <td class="num">${fmt(v.p50, 2)}</td><td class="num">${fmt(v.p95, 2)}</td>
+        <td class="num">${fmt(v.max, 2)}</td>
+        <td>${t == null ? '–' : pill('≤ ' + t, pass ? 'ok' : 'bad')}</td></tr>`;
+    }).join('');
+
+  const rates = m.topic_rate || {};
+  const ages = Object.fromEntries(Object.entries(m).filter(([k]) => k.startsWith('topic_age/'))
+    .map(([k, v]) => [k.slice(10), v]));
+  $('#topics').innerHTML = '<tr><th>topic</th><th>rate Hz</th><th>expected</th>' +
+    '<th>age p50</th><th>age p95</th></tr>' + Object.keys(RATES).map((t) => {
+      const r = Number(rates[t] || 0), a = ages[t] || {};
+      const ok = r >= 0.8 * RATES[t];
+      return `<tr><td>${t}</td><td class="num">${pill(fmt(r, 1), ok ? 'ok' : 'warn')}</td>
+        <td class="num">${RATES[t]}</td><td class="num">${fmt(a.p50, 1)}</td>
+        <td class="num">${pill(fmt(a.p95, 1), Number(a.p95) <= 1000 ? 'ok' : 'bad')}</td></tr>`;
+    }).join('');
+
+  const en = Object.entries(m).filter(([k]) => k.startsWith('energy/'))
+    .map(([k, v]) => [k.slice(7), v]);
+  const total = en.reduce((s, [, v]) => s + Number(v.energy_j || 0), 0);
+  $('#energy').innerHTML = '<tr><th>device</th><th>power W</th><th>energy J</th><th>J/m</th>' +
+    '<th></th></tr>' + en.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td>
+      <td class="num">${fmt(v.power_w, 2)}</td><td class="num">${fmt(v.energy_j, 1)}</td>
+      <td class="num">${v.energy_per_m_j ? fmt(v.energy_per_m_j, 1) : ''}</td>
+      <td style="width:30%"><div class="bar"><div style="width:${
+        total ? (100 * Number(v.energy_j) / total).toFixed(1) : 0}%"></div></div></td></tr>`)
+    .join('') + `<tr><th>total</th><td></td><th class="num">${fmt(total, 1)}</th><td></td><td></td></tr>`;
+
+  const w = m.queue_wait_sec || {}, mt = m.mission_time_sec || {};
+  $('#service').innerHTML = `<tr><th></th><th>n</th><th>p50</th><th>p95</th><th>max</th></tr>
+    <tr><td>queue wait (s)</td><td class="num">${w.n || 0}</td><td class="num">${fmt(w.p50)}</td>
+      <td class="num">${fmt(w.p95)}</td><td class="num">${fmt(w.max)}</td></tr>
+    <tr><td>mission time (s)</td><td class="num">${mt.n || 0}</td><td class="num">${fmt(mt.p50)}</td>
+      <td class="num">${fmt(mt.p95)}</td><td class="num">${fmt(mt.max)}</td></tr>`;
+}
+
+async function loop() {
+  try { render(await getJSON('/api/metrics')); }
+  catch (e) { $('#run').textContent = 'disconnected: ' + e.message; }
+  setTimeout(loop, 1000);
+}
+loop();
+</script>
+</body>
+</html>

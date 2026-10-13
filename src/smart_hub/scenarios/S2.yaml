@@ -1,9 +1,14 @@
 # S2 — AI demand prediction (assignment 9). Owner: M2 (dispatch: M3)
+# Rising-demand episode with a feed gap after warm-up. Training episodes: run
+# sim_world.World offline with different seeds / arrival rates (no ROS needed).
 scenario_id: S2
 duration_sec: 360
-episodes: rising_demand   # rising_demand | steady | noisy_threshold
 events:
+  - {t: 0.0,   type: arrival_rate, per_min: 2.0}
+  - {t: 90.0,  type: arrival_rate, per_min: 6.0}
   - {t: 120.0, type: freeze_camera, duration_sec: 5.0}
+  - {t: 180.0, type: arrival_rate, per_min: 10.0}
+  - {t: 270.0, type: arrival_rate, per_min: 1.0}
 expected:
   max_outstanding_dock_goals: 1
   dispatch_from_invalid_forecast: 0
