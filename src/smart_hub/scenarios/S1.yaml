@@ -1,10 +1,13 @@
 # S1 — passenger detection and queue counting (assignment 8.3). Owner: M1
+# Start empty 5 s; +3 at 5 s, +2 at 10 s, -1 at 15 s; crossing pedestrian 20-24 s;
+# 0.3 s occlusion at 17 s; camera freeze at 30 s; run 40 s.
 scenario_id: S1
 duration_sec: 40
 events:
   - {t: 5.0,  type: spawn_queue_tracks, count: 3}
   - {t: 10.0, type: spawn_queue_tracks, count: 2}
   - {t: 15.0, type: remove_queue_tracks, count: 1}
+  - {t: 17.0, type: occlude, count: 1, duration_sec: 0.3}
   - {t: 20.0, type: crossing_pedestrian, duration_sec: 4.0}
   - {t: 30.0, type: freeze_camera}
 expected:

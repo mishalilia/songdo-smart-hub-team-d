@@ -3,11 +3,11 @@ scenario_id: S4
 duration_sec: 45
 initial_slots: {P1: OCCUPIED, P2: FREE, P3: FREE}
 events:
-  - {t: 5.0,  type: reserve, client: C1, request_id: c1-001, preferred_slot: P2}
-  - {t: 5.0,  type: reserve, client: C2, request_id: c2-001, preferred_slot: P2}
-  - {t: 6.0,  type: reserve, client: C1, request_id: c1-001, preferred_slot: P2}  # duplicate
+  - {t: 5.0,  type: reserve, client: C1, request_id: c1-001, preferred_slot: P2, ttl_sec: 30.0}
+  - {t: 5.0,  type: reserve, client: C2, request_id: c2-001, preferred_slot: P2, ttl_sec: 30.0}
+  - {t: 6.0,  type: reserve, client: C1, request_id: c1-001, preferred_slot: P2, ttl_sec: 30.0}
   - {t: 8.0,  type: occupy_reserved_slot, client: C1}
   - {t: 10.0, type: disconnect_slot_sensor, slot: P3}
-  - {t: 40.0, type: expire_reservations}
+  # Remaining reservations expire by TTL (5 s + 30 s) before t = 40 s.
 expected:
   double_allocations: 0

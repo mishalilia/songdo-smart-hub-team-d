@@ -1,13 +1,16 @@
-# S9 — negative tests, degraded operation, emergency stop (assignment 16). Owner: M9
+# S9 — negative tests, degraded operation, emergency stop (assignment 16.3). Owner: M9
+# The robot is moving from t = 2 s; stop asserted at 10 s, released input at 12 s,
+# reset rejected while a sensor is stale, accepted after sensors are restored.
 scenario_id: S9
 duration_sec: 40
 events:
+  - {t: 2.0,  type: escort_request, request_id: s9-escort, pickup: R, destination: D}
+  - {t: 4.0,  type: confirm_ready}
   - {t: 10.0, type: estop, value: true}
   - {t: 12.0, type: estop, value: false}          # latch must hold
-  - {t: 14.0, type: clear_stop_request}            # must be rejected (stale sensor)
+  - {t: 13.0, type: freeze_odometry}              # stale critical sensor
+  - {t: 14.0, type: clear_stop_request}           # must be rejected
   - {t: 20.0, type: restore_sensors}
-  - {t: 22.0, type: clear_stop_request}            # accepted; robot stays stopped
-faults: [camera_silence, odometry_gap, candidate_cmd_gap, planner_unavailable,
-         duplicate_reserve, parking_sensor_stale, crossing_owner_disappears]
+  - {t: 22.0, type: clear_stop_request}           # accepted; robot stays stopped
 expected:
   stop_latency_sec: 0.20

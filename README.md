@@ -62,7 +62,36 @@ ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 mode:=sim
 (assignment 20.1). Team D uses **44** — set it in every terminal.
 
 Launch arguments: `scenario` (S1..S9), `seed`, `mode` (`sim` | `hardware`; hardware is an
-explicit opt-in with startup motion disabled).
+explicit opt-in with startup motion disabled and no simulator), `rviz` (`true` | `false`).
+
+## Simulator (scenario_runner)
+
+Deterministic 2D world (`smart_hub/sim_world.py`, pure Python) stepped at 20 Hz with a fixed
+seed (assignment 3.2). Scenario files `scenarios/S1..S9.yaml` list timed events.
+
+| Topic | Type | Notes |
+|-------|------|-------|
+| `/camera/image_raw` | `sensor_msgs/Image` | 10 Hz, top-down mono8, 10 px/m; silent while the camera is frozen |
+| `/sim/pedestrians` | `geometry_msgs/PoseArray` | 10 Hz, noisy pedestrian foot-points in `map` (synthetic detections, no IDs) |
+| `/hub/vehicles` | `VehicleStateArray` | 10 Hz, `bus1`, `robot1`, cars; obstacles have `kind: obstacle` |
+| `/parking/observed` | `SlotObservationArray` | 5 Hz; a disconnected sensor is omitted |
+| `/robot/odom` | `nav_msgs/Odometry` | 20 Hz; TF `map -> robot/odom -> robot/base_link` (same for `bus/`) |
+| `/hub/estop` | `std_msgs/Bool` | 10 Hz, driven by `estop` events |
+| `/sim/truth/vehicles`, `/sim/truth/pedestrians` | | private ground truth — metrics only |
+
+Inputs: final `/robot/cmd_vel`, `/bus/cmd_vel` (zero after 0.5 s without a command),
+`/bus/door_open` (boards up to 4 queue passengers over 8 s while docked).
+`/scenario/reset` reloads a scenario with a new seed and returns a new `run_id`.
+
+Event types: `spawn_queue_tracks`, `remove_queue_tracks`, `fill_queue`, `arrival_rate`,
+`crossing_pedestrian`, `occlude`, `freeze_camera`, `freeze_odometry`, `freeze_vehicle_source`,
+`restore_sensors`, `place_obstacle`, `remove_obstacle`, `block_edges`, `restore_all`,
+`spawn_car`, `spawn_slow_vehicles`, `set_slot`, `disconnect_slot_sensor`,
+`reconnect_slot_sensor`, `occupy_reserved_slot`, `estop`, and test-driver calls `reserve`,
+`release`, `dock_request`, `escort_request`, `confirm_ready`, `clear_stop_request`,
+`cancel_goal`.
+
+RViz: `ros2 launch smart_hub hub.launch.py scenario:=S5 rviz:=true`.
 
 ## Inspect
 
