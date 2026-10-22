@@ -398,6 +398,9 @@ class World:
                 if any(_point_segment_distance((x, y), hub_map.NODES[a], hub_map.NODES[b]) < 0.7
                        for a, b in edges):
                     continue   # keep roads and robot links free
+                if any(abs(x - hub_map.NODES[s][0]) < 0.8 and
+                       0.0 <= y - hub_map.NODES[s][1] <= 1.3 for s in hub_map.PARKING_SLOTS):
+                    continue   # and the parking bays (drawn above each slot node)
                 if all(math.hypot(x - p.x, y - p.y) > 2 * PEDESTRIAN_RADIUS
                        for p in self.peds.values()):
                     self._new_ped('X', x, y)

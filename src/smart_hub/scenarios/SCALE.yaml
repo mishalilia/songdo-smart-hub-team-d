@@ -5,6 +5,7 @@
 scenario_id: SCALE
 duration_sec: 180
 events:
+  - {t: 1.0,   type: clear_stop_request}            # startup latch -> ready (16.3)
   - {t: 2.0,   type: agent_route, agent: robot1, route: [R, W, Cn, Cs, J, D]}
   - {t: 10.0,  type: spawn_queue_tracks, count: 8}
   - {t: 30.0,  type: spawn_crowd, count: 25}
