@@ -13,10 +13,10 @@ scenarios S1–S8, safety/fault suite S9, verification tests T01–T18.
 
 | Item | Version |
 |------|---------|
-| OS | Ubuntu 24.04 |
-| ROS 2 | Jazzy |
-| Python | _record exact installed version_ |
-| ROS packages | _record exact installed versions_ |
+| OS | Ubuntu 24.04.5 LTS |
+| ROS 2 | Jazzy (rclpy 7.1.12, ros2launch 0.26.12, rosbag2 0.26.11) |
+| Python | 3.12.3 |
+| Python packages | numpy 1.26.4, PyYAML 6.0.1, OpenCV 4.6.0, scikit-learn 1.4.1 |
 
 ## Workspace
 
@@ -33,10 +33,17 @@ smart_hub_ws/src/
       metrics_logger.py      actuator_bridge.py
       dashboard_marker_publisher.py
       hub_ui.py              # web UI / dashboard
+      sim_world.py  iot_devices.py               # simulator world, devices, energy
+      tracker.py  demand_model.py  crossing_arbiter.py  dispatch_policy.py
+      parking_engine.py  traffic_logic.py  route_engine.py  path_follower.py
+      hub_map.py  qos.py  params.py  hub_events.py  metrics.py
+      train_demand_model.py  scalability_benchmark.py  test_matrix.py
     launch/hub.launch.py
     config/map.yaml
     config/hub.yaml
-    scenarios/S1.yaml ... S9.yaml, DEMO.yaml, SCALE.yaml
+    models/demand_ridge.json
+    scenarios/S1.yaml ... S9.yaml, S4_PAIRS.yaml, S5_FREE.yaml, FAULTS.yaml,
+              DEMO.yaml, SCALE.yaml, SANDBOX.yaml
     web/                       # operator UI + metrics dashboard (served by hub_ui)
     tests/
     package.xml  setup.py  setup.cfg
@@ -63,7 +70,7 @@ ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 mode:=sim
 `ROS_DOMAIN_ID` is team-specific so neighbouring groups do not receive each other's commands
 (assignment 20.1). Team D uses **44** — set it in every terminal.
 
-Launch arguments: `scenario` (S1..S9, DEMO, SCALE, S4_PAIRS, FAULTS), `seed`,
+Launch arguments: `scenario` (S1..S9, DEMO, SCALE, SANDBOX, S4_PAIRS, S5_FREE, FAULTS), `seed`,
 `mode` (`sim` | `hardware`; hardware is an explicit opt-in with startup motion disabled and
 no simulator), `variant` (test variant listed in the scenario file), `rviz` (`true`),
 `record` (`true`: rosbag of the 20.2 topics to `evidence/bags/`), `dispatch_mode`
@@ -189,6 +196,22 @@ ros2 run smart_hub train_demand_model --episodes 30
 ros2 run smart_hub scalability_benchmark
 ```
 
+## Results (midterm)
+
+Verification matrix, 95 runs (`evidence/test_matrix/summary.md`): **95/95 passed**.
+
+| Item | Result |
+|------|--------|
+| S1 queue counting | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.93 s after camera freeze |
+| S3 bus docking (10 runs) | position error ≤ 0.20 m, yaw ≤ 0.17 rad; ETA error at 5 m within 2.3 s |
+| S4 parking (20 simultaneous pairs) | 0 double allocations, service p95 84 ms |
+| S5 congestion | precision 1.00, recall 1.00; 0 false alarms in 10 free-flow runs |
+| S7 robot escort (10 runs) | all arrived, arrival error < 0.10 m |
+| S8 integrated hub (10 + 10 runs) | 0 collisions, 0 crossing conflicts, 0 overlapping dispatches |
+| S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | e-stop latency < 4 ms; every fault stops or aborts safely |
+| Node kills (robot_manager, safety_supervisor, route_planner) | robot stopped within 0.65 s |
+| Dispatch policy (S8, same seeds) | mean queue wait: predictive 61.4 s, reactive 53.8 s |
+
 ## Units and invalid-value conventions
 
 - Frame `map`; origin south-west corner, +x east, +y north, +z up; metres, radians, seconds, m/s.
@@ -207,19 +230,18 @@ ros2 run smart_hub scalability_benchmark
 
 | ID | Member | Nodes / files | Scenarios, tests | Reviews |
 |----|--------|---------------|------------------|---------|
-| M1 | Andrey Li | `passenger_detector` — detection, tracking, homography, queue/crossing occupancy | S1; T01, T02 | M5 state validity |
+| M1 | Andrey Li | `passenger_detector`, `tracker` — detection, tracking, homography, queue/crossing occupancy | S1; T01, T02 | M5 state validity |
 | M2 | Hsu Shwe Sin Htun | `demand_predictor` — 30 episodes, features, persistence baseline, ridge model, data split | S2; T03 | M6 state validity |
-| M3 | Komronbek Tohirov | `hub_coordinator` — crossing mutex `/crossing/request`, demand dispatch, S8 integration | S2 dispatch, S8; T04, T15 | M7 cancellation |
+| M3 | Komronbek Tohirov | `hub_coordinator`, `crossing_arbiter`, `dispatch_policy` — crossing mutex `/crossing/request`, demand dispatch, S8 integration | S2 dispatch, S8; T04, T15 | M7 cancellation |
 | M4 | Vadim Lifrov | `bus_manager` — DockBus action, ETA, docking, door interlock | S3; T05, T06 | M9 stop latch / interlocks |
 | M5 | Nikita Pak | `parking_manager`, `parking_engine` — reservations, expiry, barrier requests | S4; T07, T08 | M1 data labels |
-| M6 | Vladislav Li | `traffic_monitor`, `route_planner`, `route_engine` — edge states, Dijkstra, replanning | S5, S6; T09–T12 | M2 data labels |
-| M7 | Timur Klechshev | `robot_manager` — EscortPassenger and NavigateTo actions, `/robot/confirm_ready` | S7; T13, T14 | M3 crossing logic |
-| M8 | Mikhail Li | `scenario_runner` / `sim_world` (2D simulator, IoT device and energy models), scenario YAMLs, launch, `hub_ui` (UI + dashboard), `metrics_logger`, `dashboard_marker_publisher`, scalability benchmark | S1–S9 stimuli, `/scenario/reset`, seeded runs, metrics | M4 integrated failures |
-| M9 | Maftuna Khalimjonova | `safety_supervisor`, `actuator_bridge` (hardware layer) — watchdogs, e-stop latch, reset | S9; T16–T18 | M8 integrated failures |
+| M6 | Vladislav Li | `traffic_monitor`, `traffic_logic`, `route_planner`, `route_engine` — edge states, Dijkstra, replanning | S5, S6; T09–T12 | M2 data labels |
+| M7 | Timur Klechshev | `robot_manager`, `path_follower` — EscortPassenger and NavigateTo actions, `/robot/confirm_ready` | S7; T13, T14 | M3 crossing logic |
+| M8 | Mikhail Li | `scenario_runner` / `sim_world` (2D simulator, IoT device and energy models), DEMO / SCALE / SANDBOX scenarios, launch, config, `hub_ui` (UI + dashboard), `metrics_logger`, `dashboard_marker_publisher`, parameter checks, scalability benchmark, test matrix runner | simulator events for S1–S9, `/scenario/reset`, seeded runs, metrics, T01–T18 runner | M4 integrated failures |
+| M9 | Maftuna Khalimjonova | `safety_supervisor`, `actuator_bridge` (hardware layer) — watchdogs, e-stop latch, reset | S9, FAULTS; T16–T18 | M8 integrated failures |
 
 Every member writes tests for their own subsystem and reviews another subsystem (23.2).
-Weekly issues record owner, estimate, acceptance evidence and reviewer. `TODO(Mn)` in the
-code marks each member's work.
+The first line of every source file names its author.
 
 ## Schedule
 
