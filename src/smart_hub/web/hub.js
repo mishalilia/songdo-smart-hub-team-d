@@ -33,7 +33,7 @@ function escapeHtml(s) {
 const EDGE_COLOURS = {NORMAL: '#9aa3b5', CONGESTED: '#d98a00', BLOCKED: '#d64545',
                       UNKNOWN: '#4a5163'};
 const SLOT_COLOURS = {FREE: '#1f9d55', RESERVED: '#d98a00', OCCUPIED: '#d64545'};
-const AGENT_STYLE = {bus: ['#2f6fde', 0.30], car: ['#9aa3b5', 0.30], robot: ['#1f9d55', 0.20],
+const AGENT_STYLE = {bus: ['#2f6fde', 0.30], car: ['#a77bd8', 0.30], robot: ['#1f9d55', 0.20],
                      obstacle: ['#d64545', 0.35]};
 
 function drawMap(canvas, map, st, tick) {

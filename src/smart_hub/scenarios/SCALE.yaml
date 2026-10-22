@@ -11,6 +11,7 @@ events:
   - {t: 30.0,  type: spawn_crowd, count: 25}
   - {t: 60.0,  type: spawn_crowd, count: 25}
   - {t: 65.0,  type: agent_route, agent: robot1, route: [D, J, Cs, Cn, W, R]}
+  - {t: 115.0, type: agent_route, agent: bus1, route: [A, N, Cn, B, U, E, J, Cs, A], loop: true}
   - {t: 120.0, type: spawn_random_cars, count: 10}
   - {t: 130.0, type: spawn_crowd, count: 50}
   - {t: 140.0, type: agent_route, agent: robot1, route: [R, W]}

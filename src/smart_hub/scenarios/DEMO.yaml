@@ -10,11 +10,13 @@ events:
   - {t: 25.0,  type: agent_route, agent: bus1, route: [A, N, Cn, B]}
   - {t: 55.0,  type: door, open: true}               # boards up to 4 passengers in 8 s
   - {t: 66.0,  type: door, open: false}
+  - {t: 68.0,  type: agent_route, agent: bus1, route: [B, U, E, J, Cs, A, N, Cn, B], loop: true}
   - {t: 70.0,  type: crossing_pedestrian, duration_sec: 5.0}
   - {t: 80.0,  type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
   - {t: 85.0,  type: barrier, open: true}
   - {t: 90.0,  type: disconnect_slot_sensor, slot: P3}
   - {t: 92.0,  type: set_slot, slot: P2, occupied: true}
   - {t: 95.0,  type: barrier, open: false}
+  - {t: 98.0,  type: remove_obstacle, id: O}         # clear the ring before the cars
   - {t: 100.0, type: spawn_crowd, count: 30}
   - {t: 105.0, type: spawn_random_cars, count: 8}

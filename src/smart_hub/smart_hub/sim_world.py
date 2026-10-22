@@ -21,6 +21,8 @@ COMMAND_TIMEOUT_SEC = 0.5
 SWEEP_STEP_M = 0.05
 EDGE_CORRIDOR_M = 0.5
 NODE_RADIUS_M = 0.3
+# The vehicle roads form one ring; background cars all drive it the same way round.
+CAR_RING = ['A', 'N', 'Cn', 'B', 'U', 'E', 'J', 'Cs', 'A']
 BOARDING_CAPACITY = 4
 BOARDING_DWELL_SEC = 8.0
 DOCK_TOLERANCE_M = 0.20
@@ -366,16 +368,16 @@ class World:
             })
 
     def _ev_spawn_random_cars(self, ev):
-        """Scalability load: `count` cars looping on random vehicle edges."""
+        """Scalability load: `count` cars circling the vehicle ring, all one way."""
         speed = float(ev.get('speed_mps', 0.35))
+        ring = CAR_RING[:-1]
         placed = 0
         for i in range(int(ev['count'])):
             car_id = 'load_car%03d' % i
             for _ in range(20):
-                a, b = self.rng.choice(hub_map.VEHICLE_EDGES)
-                if self.rng.random() < 0.5:
-                    a, b = b, a
-                self._ev_spawn_car({'id': car_id, 'route': [a, b], 'speed_mps': speed,
+                k = self.rng.randrange(len(ring))
+                route = ring[k:] + ring[:k] + [ring[k]]       # closed: ends where it starts
+                self._ev_spawn_car({'id': car_id, 'route': route, 'speed_mps': speed,
                                     'start_fraction': self.rng.uniform(0.1, 0.9)})
                 car = self.agents[car_id]
                 if not self._collides(car, car.x, car.y):
@@ -465,7 +467,8 @@ class World:
         if math.hypot(a.x - start[0], a.y - start[1]) > 0.3:
             route.insert(0, min(hub_map.NODES, key=lambda n: math.dist((a.x, a.y),
                                                                        hub_map.NODES[n])))
-        a.route, a.route_index, a.loop = route, 1 if len(route) > 1 else 0, False
+        a.route, a.route_index = route, 1 if len(route) > 1 else 0
+        a.loop = bool(ev.get('loop', False))      # closed route + loop: keep circling
         a.speed = float(ev.get('speed_mps', 0.25 if a.kind == 'robot' else 0.35))
         a.controlled = False
 
@@ -563,6 +566,9 @@ class World:
                 self._emit(a.agent_id, 'ROUTE_DONE', '-'.join(a.route))
                 a.route, a.v, a.controlled = [], 0.0, a.kind in ('bus', 'robot')
                 a.cmd_time = -math.inf
+                return
+            if a.route[0] == a.route[-1]:
+                a.route_index = 1          # closed route (ring): keep driving round
                 return
             # Loop: re-enter at the route start to keep a steady flow; while the start is
             # occupied the car leaves the road instead of blocking the end node.
