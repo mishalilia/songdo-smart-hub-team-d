@@ -124,6 +124,8 @@ class World:
         self.camera = Sensor('camera', 'camera')
         self._door_was_open = False
         self.crossing_owner = ''    # from /crossing/state: background cars yield to it
+        self.crossing_lock = False  # scripted bus / robot use the crossing lock (scenario_runner)
+        self.crossing_wanted = set()  # scripted agents waiting at the edge of C for a grant
         self.entrance = []          # cars waiting at the parking barrier: [client, since]
         self._passage_until = -math.inf
         self._passing = None
@@ -545,6 +547,14 @@ class World:
         step = min(a.speed * STEP_SEC, remaining)
         nx = a.x + step * dx / remaining if remaining > 0 else a.x
         ny = a.y + step * dy / remaining if remaining > 0 else a.y
+        # Scripted bus / robot wait at the edge of C until the coordinator grants it to them.
+        if self.crossing_lock and a.kind in ('bus', 'robot') and \
+                _footprint_in_c(nx, ny, a.radius) and not _footprint_in_c(a.x, a.y, a.radius) \
+                and self.crossing_owner != a.agent_id:
+            self.crossing_wanted.add(a.agent_id)
+            a.v = 0.0
+            return
+        self.crossing_wanted.discard(a.agent_id)
         # Background cars obey the crossing: no entry into C while someone owns it.
         if a.kind == 'car' and self.crossing_owner and \
                 _footprint_in_c(nx, ny, a.radius) and not _footprint_in_c(a.x, a.y, a.radius):
@@ -697,6 +707,10 @@ class World:
 def _near_rect(x, y, rect, margin):
     xmin, xmax, ymin, ymax = rect
     return xmin - margin <= x <= xmax + margin and ymin - margin <= y <= ymax + margin
+
+
+def footprint_in_c(agent):
+    return _footprint_in_c(agent.x, agent.y, agent.radius)
 
 
 def _footprint_in_c(x, y, radius):
