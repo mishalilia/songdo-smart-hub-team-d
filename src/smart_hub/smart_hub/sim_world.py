@@ -23,6 +23,7 @@ EDGE_CORRIDOR_M = 0.5
 NODE_RADIUS_M = 0.3
 # The vehicle roads form one ring; background cars all drive it the same way round.
 CAR_RING = ['A', 'N', 'Cn', 'B', 'U', 'E', 'J', 'Cs', 'A']
+CROSSING_MARGIN_M = 0.1         # scripted agents wait this far outside C for a grant
 BOARDING_CAPACITY = 4
 BOARDING_DWELL_SEC = 8.0
 DOCK_TOLERANCE_M = 0.20
@@ -548,8 +549,10 @@ class World:
         nx = a.x + step * dx / remaining if remaining > 0 else a.x
         ny = a.y + step * dy / remaining if remaining > 0 else a.y
         # Scripted bus / robot wait at the edge of C until the coordinator grants it to them.
+        # They stop a margin short of C, so sensor noise never shows them inside while waiting.
+        r = a.radius + CROSSING_MARGIN_M
         if self.crossing_lock and a.kind in ('bus', 'robot') and \
-                _footprint_in_c(nx, ny, a.radius) and not _footprint_in_c(a.x, a.y, a.radius) \
+                _footprint_in_c(nx, ny, r) and not _footprint_in_c(a.x, a.y, r) \
                 and self.crossing_owner != a.agent_id:
             self.crossing_wanted.add(a.agent_id)
             a.v = 0.0
@@ -709,8 +712,8 @@ def _near_rect(x, y, rect, margin):
     return xmin - margin <= x <= xmax + margin and ymin - margin <= y <= ymax + margin
 
 
-def footprint_in_c(agent):
-    return _footprint_in_c(agent.x, agent.y, agent.radius)
+def footprint_in_c(agent, margin=0.0):
+    return _footprint_in_c(agent.x, agent.y, agent.radius + margin)
 
 
 def _footprint_in_c(x, y, radius):

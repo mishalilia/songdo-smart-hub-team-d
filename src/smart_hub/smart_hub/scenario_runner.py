@@ -623,7 +623,7 @@ class ScenarioRunner(Node):
                 self._crossing_call(aid, 'ACQUIRE', '')
         for aid, lock in list(self.crossing.items()):
             agent = w.agents.get(aid)
-            inside = agent is not None and footprint_in_c(agent)
+            inside = agent is not None and footprint_in_c(agent, 0.15)   # clear of noise
             lock['entered'] = lock['entered'] or inside
             if now < self.crossing_busy.get(aid, 0.0):
                 continue
@@ -645,7 +645,9 @@ class ScenarioRunner(Node):
                 res = f.result() if f.exception() is None else None
                 now = time.monotonic()
                 self.crossing_busy[aid] = now + (0.0 if res and res.granted else 0.5)
-                if operation == 'RELEASE' or res is None or not res.granted:
+                if operation == 'RELEASE' and res is not None and res.reason == 'NOT_CLEAR':
+                    self.crossing_busy[aid] = now + 0.5      # still seen in C: retry
+                elif operation == 'RELEASE' or res is None or not res.granted:
                     self.crossing.pop(aid, None)
                 elif operation == 'ACQUIRE':
                     self.crossing[aid] = {'token': res.token, 'entered': False,
