@@ -57,7 +57,7 @@ sudo apt install -y python3-colcon-common-extensions python3-rosdep python3-pyte
   python3-numpy python3-sklearn python3-opencv \
   ros-jazzy-rviz2 ros-jazzy-ros2bag ros-jazzy-rosbag2-storage-default-plugins
 
-git clone https://github.com/mishalilia/songdo-smart-hub-team-d.git smart_hub_ws
+# unpack the submitted source archive, then from its top-level folder (contains src/):
 cd smart_hub_ws
 source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=44
