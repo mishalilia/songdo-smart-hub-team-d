@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 from glob import glob
 import os
 
@@ -16,6 +17,7 @@ setup(
         (os.path.join('share', package_name, 'config'), glob('config/*')),
         (os.path.join('share', package_name, 'scenarios'), glob('scenarios/*.yaml')),
         (os.path.join('share', package_name, 'web'), glob('web/*')),
+        (os.path.join('share', package_name, 'models'), glob('models/*.json')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -41,6 +43,8 @@ setup(
             'dashboard_marker_publisher = smart_hub.dashboard_marker_publisher:main',
             'scalability_benchmark = smart_hub.scalability_benchmark:main',
             'hub_ui = smart_hub.hub_ui:main',
+            'train_demand_model = smart_hub.train_demand_model:main',
+            'run_test_matrix = smart_hub.test_matrix:main',
         ],
     },
 )

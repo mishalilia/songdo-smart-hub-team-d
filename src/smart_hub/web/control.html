@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Author: Mikhail Li (12236295) -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -21,9 +22,9 @@
   </section>
   <div class="side">
     <section class="card">
-      <button class="danger" onclick="command('estop')">EMERGENCY STOP</button>
+      <button class="danger" onclick="sendCommand('estop')">EMERGENCY STOP</button>
       <div class="row" style="margin-top:8px">
-        <button onclick="command('clear_stop')">Clear stop</button>
+        <button onclick="sendCommand('clear_stop')">Clear stop</button>
         <span id="safety"></span>
       </div>
     </section>
@@ -34,10 +35,11 @@
           <option>S1</option><option>S2</option><option>S3</option><option>S4</option>
           <option>S5</option><option>S6</option><option>S7</option><option>S8</option>
           <option>S9</option><option selected>DEMO</option><option>SCALE</option>
+          <option>SANDBOX</option>
         </select>
         <input id="seed" type="number" value="42" aria-label="seed">
         <button class="primary"
-          onclick="command('reset', {scenario: $('#scenario').value, seed: $('#seed').value})">
+          onclick="sendCommand('reset', {scenario: $('#scenario').value, seed: $('#seed').value})">
           Reset &amp; run</button>
       </div>
     </section>
@@ -48,7 +50,7 @@
           <option value="bus1">bus1</option></select> →
         <select id="simGoal" aria-label="goal"></select>
         <button class="primary"
-          onclick="command('sim_route', {agent: $('#simAgent').value, goal: $('#simGoal').value})">
+          onclick="sendCommand('sim_route', {agent: $('#simAgent').value, goal: $('#simGoal').value})">
           Drive (sim)</button>
       </div>
       <div class="row">
@@ -81,13 +83,13 @@
         <select id="pickup" aria-label="pickup"></select> →
         <select id="dest" aria-label="destination"></select>
         <button class="primary"
-          onclick="command('escort', {pickup: $('#pickup').value, destination: $('#dest').value})">
+          onclick="sendCommand('escort', {pickup: $('#pickup').value, destination: $('#dest').value})">
           Escort</button>
       </div>
       <div class="row">
-        <button onclick="command('confirm_ready')">Passenger ready</button>
-        <button onclick="command('navigate', {goal: $('#dest').value})">Go to</button>
-        <button onclick="command('cancel')">Cancel</button>
+        <button onclick="sendCommand('confirm_ready')">Passenger ready</button>
+        <button onclick="sendCommand('navigate', {goal: $('#dest').value})">Go to</button>
+        <button onclick="sendCommand('cancel')">Cancel</button>
       </div>
       <div class="kv" id="mission"></div>
       <div class="bar" style="margin-top:6px"><div id="progress"></div></div>
@@ -98,12 +100,12 @@
         <input id="car" value="C1" aria-label="vehicle">
         <select id="slot" aria-label="slot"><option value="">any</option>
           <option>P1</option><option>P2</option><option>P3</option></select>
-        <button onclick="command('reserve', {vehicle: $('#car').value, slot: $('#slot').value})">
+        <button onclick="sendCommand('reserve', {vehicle: $('#car').value, slot: $('#slot').value})">
           Reserve</button>
       </div>
       <div class="row">
-        <button onclick="command('barrier', {open: true})">Barrier open</button>
-        <button onclick="command('barrier', {open: false})">Barrier close</button>
+        <button onclick="sendCommand('barrier', {open: true})">Barrier open</button>
+        <button onclick="sendCommand('barrier', {open: false})">Barrier close</button>
       </div>
       <div class="kv" id="hub"></div>
     </section>
@@ -116,7 +118,7 @@
 <script src="hub.js"></script>
 <script>
 let MAP = null, tick = 0;
-const sim = (event) => command('sim', {event});
+const sim = (event) => sendCommand('sim', {event});
 const ROBOT_NODES = ['R', 'W', 'Cn', 'Cs', 'J', 'D', 'B', 'U', 'E'];
 for (const n of ROBOT_NODES) {
   $('#pickup').add(new Option(n, n, n === 'R', n === 'R'));
@@ -129,6 +131,10 @@ for (const n of ['R', 'W', 'Cn', 'Cs', 'J', 'D', 'A', 'N', 'B', 'U', 'E']) {
 function render(st) {
   drawMap($('#map'), MAP, st, tick++);
   const run = st.run || {};
+  if (run.scenario && !render.scenarioSet) {      // show the running scenario once
+    $('#scenario').value = run.scenario;
+    render.scenarioSet = true;
+  }
   $('#run').textContent = run.run_id ? `${run.scenario} · ${run.run_id}` : 'waiting for run';
   const s = st.safety;
   $('#safety').innerHTML = !s ? pill('NO DATA') : s.latched ? pill('STOP ' + s.reason, 'bad')

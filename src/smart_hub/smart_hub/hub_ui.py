@@ -1,5 +1,6 @@
+# Author: Mikhail Li (12236295)
 """
-hub_ui — owner M8.
+hub_ui.
 
 Operator UI and metrics dashboard served over HTTP (default http://localhost:8080):
   /           control page — live map, hub state, robot mission progress, event log and
@@ -26,6 +27,7 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from smart_hub import hub_map
+from smart_hub.params import check_parameters
 from smart_hub.qos import R1, R10, R100, R1T
 from smart_hub.route_engine import plan
 from smart_hub_interfaces.action import EscortPassenger, NavigateTo
@@ -39,6 +41,7 @@ from smart_hub_interfaces.srv import (
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 
+READY_WAIT_SEC = 5.0      # wait this long for a just-started graph before reporting failure
 CONTENT_TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript',
                  '.css': 'text/css'}
 
@@ -57,6 +60,7 @@ class HubUi(Node):
         self.declare_parameter('port', 8080)
         self.declare_parameter('web_dir', '')
         self.declare_parameter('congestion_density_threshold', 0.70)
+        check_parameters(self)
 
         self.lock = threading.Lock()
         self.state = {}
@@ -66,6 +70,7 @@ class HubUi(Node):
         self.mission = {}
         self.goal_handle = None
         self.commands = queue.Queue()
+        self.waiting = []
         self.counter = 0
 
         subs = [
@@ -156,7 +161,7 @@ class HubUi(Node):
         with self.lock:
             self.events.append({'t': time.strftime('%H:%M:%S'), 'entity': msg.entity_id,
                                 'event': msg.event, 'reason': msg.reason})
-            if msg.event == 'RUN_START':
+            if msg.entity_id == 'scenario_runner' and msg.run_id:
                 self.state['run'] = {'run_id': msg.run_id, 'scenario': msg.scenario_id}
             if msg.entity_id == 'robot1':
                 self.track_mission(msg)
@@ -201,10 +206,32 @@ class HubUi(Node):
     def process_commands(self):
         while not self.commands.empty():
             cmd = self.commands.get_nowait()
+            cmd.setdefault('_deadline', time.monotonic() + READY_WAIT_SEC)
             try:
+                if not self.target_ready(cmd) and time.monotonic() < cmd['_deadline']:
+                    self.waiting.append(cmd)      # graph not discovered yet: retry shortly
+                    continue
                 self.execute(cmd)
             except (KeyError, ValueError, TypeError) as exc:
                 self.log('UI_COMMAND_INVALID', '%s: %s' % (cmd.get('cmd'), exc))
+        for cmd in self.waiting:
+            self.commands.put(cmd)
+        self.waiting = []
+
+    def target_ready(self, cmd):
+        """Return True when the service / action / subscriber of a command is discovered."""
+        kind = cmd['cmd']
+        if kind in self.clients_:
+            return self.clients_[kind].service_is_ready()
+        if kind == 'escort':
+            return self.escort_client.server_is_ready()
+        if kind == 'navigate':
+            return self.navigate_client.server_is_ready()
+        publishers = {'estop': self.estop_pub, 'barrier': self.barrier_pub,
+                      'sim': self.inject_pub, 'sim_route': self.inject_pub}
+        if kind in publishers:
+            return publishers[kind].get_subscription_count() > 0
+        return True
 
     def call(self, name, request):
         client = self.clients_[name]

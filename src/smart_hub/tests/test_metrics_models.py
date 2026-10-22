@@ -1,4 +1,5 @@
-"""Unit tests: IoT device models, energy model, metric helpers. Owner: M8."""
+# Author: Mikhail Li (12236295)
+"""Unit tests: IoT device models, energy model, metric helpers."""
 import math
 
 from smart_hub import hub_map

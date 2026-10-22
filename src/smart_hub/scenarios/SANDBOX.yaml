@@ -1,0 +1,6 @@
+# Author: Mikhail Li (12236295)
+# Free play from the UI: no scripted events, long duration. Use the Control page buttons.
+scenario_id: SANDBOX
+duration_sec: 3600
+initial_slots: {P1: FREE, P2: FREE, P3: FREE}
+events: []

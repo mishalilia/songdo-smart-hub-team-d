@@ -63,8 +63,16 @@ ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 mode:=sim
 `ROS_DOMAIN_ID` is team-specific so neighbouring groups do not receive each other's commands
 (assignment 20.1). Team D uses **44** — set it in every terminal.
 
-Launch arguments: `scenario` (S1..S9), `seed`, `mode` (`sim` | `hardware`; hardware is an
-explicit opt-in with startup motion disabled and no simulator), `rviz` (`true` | `false`).
+Launch arguments: `scenario` (S1..S9, DEMO, SCALE, S4_PAIRS, FAULTS), `seed`,
+`mode` (`sim` | `hardware`; hardware is an explicit opt-in with startup motion disabled and
+no simulator), `variant` (test variant listed in the scenario file), `rviz` (`true`),
+`record` (`true`: rosbag of the 20.2 topics to `evidence/bags/`), `dispatch_mode`
+(`predictive` | `reactive`), `ui_port`.
+
+Every node checks its parameters at startup against `smart_hub/params.py` and refuses to
+start on invalid values; `metrics_logger` stores all nodes' parameter values per run
+(`evidence/runs/<run_id>/params.json`). `/scenario/reset` returns after every stateful node
+answered `RESET_ACK` on `/hub/events`.
 
 ## Midterm demo
 
@@ -118,6 +126,7 @@ seed (assignment 3.2). Scenario files `scenarios/S1..S9.yaml` list timed events.
 | `/sim/energy` | `diagnostic_msgs/DiagnosticArray` | 1 Hz, robot / bus / device energy model |
 | `/iot/status` | `diagnostic_msgs/DiagnosticArray` | 2 Hz, barrier, door, LEDs, slot sensors, camera |
 | `/bus/door_open`, `/parking/barrier_open` | `std_msgs/Bool` | measured device status, on change + 2 Hz |
+| `/parking/entrance` | `std_msgs/String` | simulated entrance sensor: id of the car waiting at the barrier |
 | `/sim/truth/vehicles`, `/sim/truth/pedestrians` | | private ground truth — metrics only |
 
 Inputs: final `/robot/cmd_vel`, `/bus/cmd_vel` (zero after 0.5 s without a command),
@@ -136,7 +145,8 @@ Event types: `spawn_queue_tracks`, `remove_queue_tracks`, `fill_queue`, `arrival
 `release`, `dock_request`, `escort_request`, `confirm_ready`, `clear_stop_request`,
 `cancel_goal`.
 Scalability load: `spawn_random_cars`, `spawn_crowd`. Scripted motion and devices:
-`agent_route` (`agent`, `route`, `speed_mps`), `door`, `barrier` (`open`).
+`agent_route` (`agent`, `route`, `speed_mps`), `door`, `barrier` (`open`), `car_at_entrance`
+(`client`; the parking manager opens the barrier only for a valid reservation).
 Scripted agents do not use the crossing lock.
 
 RViz: `ros2 launch smart_hub hub.launch.py scenario:=S5 rviz:=true`.
@@ -161,15 +171,22 @@ ros2 action send_goal /robot/escort smart_hub_interfaces/action/EscortPassenger 
 ## Record and test
 
 ```bash
-ros2 bag record -o bags/S8_seed42 \
-  /hub/queue /hub/demand /hub/vehicles /hub/bus_arrival \
-  /parking/state /traffic/edges /crossing/state \
-  /robot/odom /robot/cmd_vel_candidate /robot/cmd_vel \
-  /bus/cmd_vel_candidate /bus/cmd_vel /hub/estop \
-  /hub/safety /hub/events /tf /tf_static
+# one run with a rosbag of the assignment 20.2 topics (evidence/bags/)
+ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 record:=true
 
+# unit, lint and launch tests
 colcon test --packages-select smart_hub
 colcon test-result --verbose
+
+# verification matrix T01-T18 with repeats -> evidence/test_matrix/{summary.md,results.csv}
+ros2 run smart_hub run_test_matrix --parallel 4 --repeat 10
+ros2 run smart_hub run_test_matrix --cases "T13|T14" --repeat 3      # subset
+
+# demand model: generate 30 episodes, train, evaluate -> models/, evidence/demand/
+ros2 run smart_hub train_demand_model --episodes 30
+
+# compute scalability -> evidence/scalability.csv
+ros2 run smart_hub scalability_benchmark
 ```
 
 ## Units and invalid-value conventions

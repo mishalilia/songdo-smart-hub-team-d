@@ -1,5 +1,6 @@
+# Author: Mikhail Li (12236295)
 """
-Simulated IoT devices of the hub (assignment 11.3, 16.2, 22). Owner: M8.
+Simulated IoT devices of the hub (assignment 11.3, 16.2, 22).
 
 Barrier servo, bus door actuator, parking LEDs, slot sensors and camera, each with a
 simple timing model, the device-level interlocks the assignment requires and a power model

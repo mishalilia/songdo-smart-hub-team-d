@@ -1,5 +1,6 @@
+# Author: Mikhail Li (12236295)
 """
-scenario_runner — owner M8.
+scenario_runner.
 
 Deterministic 2D simulator at 20 Hz (assignment 3.2) wrapping sim_world.World:
 seeded scenario events, private ground truth, noisy observations for detectors.
@@ -16,6 +17,7 @@ Published observations:
   /sim/energy             diagnostic_msgs/DiagnosticArray  1 Hz, robot, bus and device energy
   /iot/status             diagnostic_msgs/DiagnosticArray  2 Hz, simulated IoT devices
   /bus/door_open, /parking/barrier_open   std_msgs/Bool   measured device status (sim mode)
+  /parking/entrance       std_msgs/String         simulated entrance sensor: waiting vehicle id
 Inputs: final /robot/cmd_vel, /bus/cmd_vel; /bus/door_request, /parking/barrier_request;
 /parking/state (LED colours); /hub/estop (true = hardwired power cut, no auto restart);
 /sim/inject (std_msgs/String, JSON event as in scenario files; test-only, used by hub_ui).
@@ -27,6 +29,7 @@ from datetime import datetime
 import json
 import math
 import os
+import threading
 import time
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
@@ -35,14 +38,17 @@ from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from smart_hub import hub_map
+from smart_hub.params import check_parameters
 from smart_hub.qos import R1, R10, R100, R1T, SENSOR
-from smart_hub.sim_world import STEP_SEC, World
+from smart_hub.sim_world import apply_variant, STEP_SEC, World
 from smart_hub_interfaces.action import DockBus, EscortPassenger
 from smart_hub_interfaces.msg import (
-    HubEvent, ParkingState, SlotObservation, SlotObservationArray, VehicleState,
+    CrossingState, HubEvent, ParkingState, SlotObservation, SlotObservationArray, VehicleState,
     VehicleStateArray,
 )
 from smart_hub_interfaces.srv import (
@@ -54,6 +60,26 @@ from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 import yaml
 
 PIXELS_PER_M = 10
+LINK_SETTLE_SEC = 2.0
+# Data flows that must be connected before the stimulus schedule starts (graph discovery
+# can take several seconds on a loaded machine).
+READY_RETRY_SEC = 1.0
+READY_RETRIES = 30
+
+CRITICAL_LINKS = [
+    ('/traffic/edges', 'traffic_monitor', 'route_planner'),
+    ('/hub/safety', 'safety_supervisor', 'robot_manager'),
+    ('/hub/safety', 'safety_supervisor', 'bus_manager'),
+    ('/crossing/state', 'hub_coordinator', 'safety_supervisor'),
+    ('/hub/queue', 'passenger_detector', 'hub_coordinator'),
+    ('/hub/queue', 'passenger_detector', 'demand_predictor'),
+    ('/hub/demand', 'demand_predictor', 'hub_coordinator'),
+    ('/robot/odom', 'scenario_runner', 'robot_manager'),
+    ('/hub/vehicles', 'scenario_runner', 'bus_manager'),
+    ('/parking/observed', 'scenario_runner', 'parking_manager'),
+    ('/robot/cmd_vel_candidate', 'robot_manager', 'safety_supervisor'),
+    ('/robot/cmd_vel', 'safety_supervisor', 'scenario_runner'),
+]
 
 
 def _yaw_to_quaternion(yaw):
@@ -75,13 +101,21 @@ class ScenarioRunner(Node):
 
     def __init__(self):
         super().__init__('scenario_runner')
+        self.reset_group = ReentrantCallbackGroup()
         self.declare_parameter('scenario', 'S1')
         self.declare_parameter('seed', 42)
         self.declare_parameter('scenario_dir', '')
         self.declare_parameter('pedestrian_noise_m', 0.05)
         self.declare_parameter('vehicle_noise_m', 0.02)
         self.declare_parameter('publish_image', True)
-        self.declare_parameter('startup_timeout_sec', 20.0)
+        self.declare_parameter('startup_timeout_sec', 45.0)
+        self.declare_parameter('variant', '')
+        self.declare_parameter('reset_ack_timeout_sec', 3.0)
+        self.declare_parameter('reset_ack_nodes', [
+            'passenger_detector', 'demand_predictor', 'hub_coordinator', 'bus_manager',
+            'parking_manager', 'traffic_monitor', 'robot_manager', 'safety_supervisor',
+            'metrics_logger'])
+        check_parameters(self)
 
         self.image_pub = self.create_publisher(Image, '/camera/image_raw', SENSOR)
         self.peds_pub = self.create_publisher(PoseArray, '/sim/pedestrians', R10)
@@ -94,6 +128,7 @@ class ScenarioRunner(Node):
         self.iot_pub = self.create_publisher(DiagnosticArray, '/iot/status', R10)
         self.door_pub = self.create_publisher(Bool, '/bus/door_open', R1)
         self.barrier_pub = self.create_publisher(Bool, '/parking/barrier_open', R1)
+        self.entrance_pub = self.create_publisher(String, '/parking/entrance', R10)
         self.device_published = {}
         self.estop_input = False
         self.truth_vehicles_pub = self.create_publisher(
@@ -111,8 +146,14 @@ class ScenarioRunner(Node):
                                  lambda m: self.world.device_request('barrier', m.data), R1)
         self.create_subscription(ParkingState, '/parking/state', self.on_parking, R1T)
         self.create_subscription(Bool, '/hub/estop', self.on_estop, R1T)
+        self.create_subscription(
+            CrossingState, '/crossing/state',
+            lambda m: setattr(self.world, 'crossing_owner', m.owner_id if m.valid else ''), R1T)
         self.create_subscription(String, '/sim/inject', self.on_inject, R10)
-        self.create_service(ResetScenario, '/scenario/reset', self.on_reset)
+        self.create_service(ResetScenario, '/scenario/reset', self.on_reset,
+                            callback_group=self.reset_group)
+        self.create_subscription(HubEvent, '/hub/events', self.on_event, R100,
+                                 callback_group=self.reset_group)
 
         # Test-driver clients (scenario events that exercise other nodes).
         self.reserve_client = self.create_client(ReserveParking, '/parking/reserve_slot')
@@ -129,9 +170,14 @@ class ScenarioRunner(Node):
         self.created_at = time.monotonic()
         self.completed = False
         self.world = None
+        self.retries = []   # (monotonic due time, request) re-sent driver requests
+        self.world_lock = threading.RLock()
         self.scenario_id = ''
+        self.variant = ''
         self.run_id = ''
-        self.load(self.get_parameter('scenario').value, self.get_parameter('seed').value)
+        self.acks = set()
+        self.load(self.get_parameter('scenario').value, self.get_parameter('seed').value,
+                  self.get_parameter('variant').value)
 
         self.create_timer(STEP_SEC, self.step)
 
@@ -143,15 +189,24 @@ class ScenarioRunner(Node):
             directory = os.path.join(get_package_share_directory('smart_hub'), 'scenarios')
         return os.path.join(directory, scenario_id + '.yaml')
 
-    def load(self, scenario_id, seed):
+    def load(self, scenario_id, seed, variant=''):
         with open(self._scenario_file(scenario_id)) as f:
             scenario = yaml.safe_load(f)
+        scenario = apply_variant(scenario, variant)
         self.scenario_id = scenario_id
-        self.world = World(scenario, seed)
-        self.run_id = '%s-s%d-%s' % (scenario_id, seed, datetime.now().strftime('%Y%m%d-%H%M%S'))
+        self.variant = variant
+        with self.world_lock:
+            self.world = World(scenario, seed)
+            self.retries = []
+        label = scenario_id + ('-' + variant if variant else '')
+        tag = os.environ.get('SMART_HUB_RUN_TAG', '')
+        if tag:                                    # unique label for parallel test runs
+            label += '-' + tag
+        self.run_id = '%s-s%d-%s' % (label, seed, datetime.now().strftime('%Y%m%d-%H%M%S'))
         self.vehicle_cache = {}
         self.completed = False
         self.started = False
+        self.ready_since = None
         self.created_at = time.monotonic()
         self.get_logger().info('Loaded %s seed=%d run_id=%s' % (scenario_id, seed, self.run_id))
 
@@ -195,24 +250,40 @@ class ScenarioRunner(Node):
         except (ValueError, KeyError, TypeError) as exc:
             self.event('scenario_runner', 'INJECT_REJECTED', str(exc))
 
+    def on_event(self, msg):
+        if msg.event == 'RESET_ACK' and msg.correlation_id == self.run_id:
+            self.acks.add(msg.entity_id)
+
     def on_reset(self, request, response):
+        """
+        Cancel goals, zero motion, reload the seeded world, wait for RESET_ACK (7.1).
+
+        Runs in a reentrant callback group on a multi-threaded executor, so the bounded
+        wait for acknowledgements does not block the simulation tick or event reception.
+        """
         scenario_id = request.scenario_id or self.scenario_id
         for handle in self.goal_handles.values():
             handle.cancel_goal_async()
         self.goal_handles = {}
         try:
-            self.load(scenario_id, int(request.seed))
+            self.load(scenario_id, int(request.seed), self.variant)
         except (OSError, yaml.YAMLError, KeyError, ValueError) as exc:
             response.success = False
             response.reason = 'RESET_FAILED: %s' % exc
             return response
+        self.acks = set()
         self.event('scenario_runner', 'RESET', 'preserve_logs=%s' % request.preserve_logs,
                    self.run_id)
-        # Reset acknowledgement by every node is not part of the interface contracts yet;
-        # nodes observe RESET on /hub/events (correlation_id = new run_id).
-        response.success = True
+        expected = set(self.get_parameter('reset_ack_nodes').value)
+        deadline = time.monotonic() + self.get_parameter('reset_ack_timeout_sec').value
+        while not expected <= self.acks and time.monotonic() < deadline:
+            time.sleep(0.05)
+        missing = sorted(expected - self.acks)
         response.run_id = self.run_id
-        response.reason = 'OK'
+        response.success = not missing
+        response.reason = 'OK all %d nodes acknowledged' % len(expected) if not missing \
+            else 'NO_ACK: ' + ','.join(missing)
+        self.event('scenario_runner', 'RESET_COMPLETE', response.reason, self.run_id)
         return response
 
     # ------------------------------------------------------------------ loop
@@ -227,16 +298,43 @@ class ScenarioRunner(Node):
             'dock_request': self.dock_client.server_is_ready,
             'escort_request': self.escort_client.server_is_ready,
         }
-        return [k for k, ready in checks.items() if k in needed and not ready()]
+        missing = [k for k, ready in checks.items() if k in needed and not ready()]
+        # Do not start the scenario clock before the graph is discovered: every expected
+        # node is visible and metrics_logger receives /hub/events (otherwise the first
+        # stimuli would be missing from the run record under load).
+        alive = set(self.get_node_names())
+        missing += sorted(n for n in self.get_parameter('reset_ack_nodes').value
+                          if n not in alive)
+        listeners = {i.node_name for i in self.get_subscriptions_info_by_topic('/hub/events')}
+        if 'metrics_logger' in alive and 'metrics_logger' not in listeners:
+            missing.append('metrics_logger:/hub/events')
+        for topic, pub, sub in CRITICAL_LINKS:
+            if pub not in alive or sub not in alive:
+                continue
+            pubs = {i.node_name for i in self.get_publishers_info_by_topic(topic)}
+            subs = {i.node_name for i in self.get_subscriptions_info_by_topic(topic)}
+            if pub not in pubs or sub not in subs:
+                missing.append('%s->%s:%s' % (pub, sub, topic))
+        return missing
 
     def step(self):
+        with self.world_lock:
+            self._step()
+
+    def _step(self):
         w = self.world
         if not self.started:
             # Hold the scenario clock at t = 0 until the nodes it drives are up, so the
             # stimulus schedule is reproducible; sensors keep publishing meanwhile.
             missing = self.interfaces_ready()
             waited = time.monotonic() - self.created_at
-            if not missing or waited > self.get_parameter('startup_timeout_sec').value:
+            if missing:
+                self.ready_since = None
+            elif self.ready_since is None:
+                self.ready_since = time.monotonic()
+            settled = self.ready_since is not None and \
+                time.monotonic() - self.ready_since >= LINK_SETTLE_SEC
+            if settled or waited > self.get_parameter('startup_timeout_sec').value:
                 # RUN_START is sent once the graph is up, so every node records the run.
                 self.started = True
                 self.event('scenario_runner', 'RUN_START', 'seed=%d' % w.seed, self.run_id)
@@ -250,6 +348,10 @@ class ScenarioRunner(Node):
         for request in w.requests:
             self.drive(request)
         w.requests.clear()
+        due = [r for at, r in self.retries if at <= time.monotonic()]
+        self.retries = [(at, r) for at, r in self.retries if at > time.monotonic()]
+        for request in due:
+            self.drive(request)
         if w.finished() and not self.completed:
             self.completed = True
             self.event('scenario_runner', 'SCENARIO_COMPLETE', 't=%.2f' % w.t, self.run_id)
@@ -266,6 +368,9 @@ class ScenarioRunner(Node):
             self.publish_slots(stamp)
         if self.tick_count % 20 == 0:
             self.publish_energy(stamp)
+        if self.tick_count % 10 == 0 and w.entrance_vehicle():
+            # Simulated entrance sensor (plate reader) at the parking barrier, 2 Hz.
+            self.entrance_pub.publish(String(data=w.entrance_vehicle()))
 
     # ------------------------------------------------------------------ publishers
     def _publish_static_frames(self):
@@ -466,7 +571,14 @@ class ScenarioRunner(Node):
             req.vehicle_id = ev['client']
             self._call(self.release_client, req, kind, ev['client'])
         elif kind == 'confirm_ready':
-            self._call(self.ready_client, Trigger.Request(), kind, 'robot1')
+            # A passenger who presses "ready" too early simply presses it again.
+            def retry(_, result, ev=ev):
+                tries = ev.get('tries', 0)
+                if not result.success and result.message == 'NOT_WAITING_FOR_READY' and \
+                        tries < READY_RETRIES:
+                    self.retries.append((time.monotonic() + READY_RETRY_SEC,
+                                         dict(ev, tries=tries + 1)))
+            self._call(self.ready_client, Trigger.Request(), kind, 'robot1', retry)
         elif kind == 'clear_stop_request':
             req = ClearSafetyStop.Request()
             req.operator_id = 'scenario_runner'
@@ -552,8 +664,10 @@ class ScenarioRunner(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = ScenarioRunner()
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:

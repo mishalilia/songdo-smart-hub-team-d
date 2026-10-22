@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 # Shared parameters (assignment 3.3 and 17). Ranges are validated at node startup.
 # Record the final parameter dump with every run.
 /**:
@@ -24,6 +25,7 @@ hub_coordinator:
     dispatch_high: 6.0
     dispatch_low: 4.0
     dispatch_cooldown_sec: 30.0
+    crossing_lease_sec: 2.0
 
 parking_manager:
   ros__parameters:
@@ -39,10 +41,11 @@ traffic_monitor:
 route_planner:
   ros__parameters:
     replan_improvement_ratio: 0.15
-    use_edge_states: false
+    use_edge_states: true
 
 robot_manager:
   ros__parameters:
+    max_angular_rad_s: 0.8
     arrival_tolerance_m: 0.20
     ready_timeout_sec: 20.0
 
@@ -55,6 +58,10 @@ bus_manager:
 safety_supervisor:
   ros__parameters:
     max_angular_rad_s: 0.8
+    pose_timeout_sec: 1.0
+    clearance_m: 0.20
+    reaction_time_sec: 0.10
+    min_deceleration_mps2: 0.5
 
 metrics_logger:
   ros__parameters:

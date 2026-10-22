@@ -1,3 +1,4 @@
+// Author: Mikhail Li (12236295)
 // Shared helpers for the control page and the dashboard.
 const $ = (sel) => document.querySelector(sel);
 
@@ -7,7 +8,9 @@ async function getJSON(path) {
   return r.json();
 }
 
-async function command(cmd, args = {}) {
+// Not named `command`: inside inline onclick handlers that name resolves to the
+// <button>.command property (Invoker Commands API) in current browsers.
+async function sendCommand(cmd, args = {}) {
   await fetch('/api/command', {method: 'POST', headers: {'Content-Type': 'application/json'},
                                body: JSON.stringify({cmd, ...args})});
 }

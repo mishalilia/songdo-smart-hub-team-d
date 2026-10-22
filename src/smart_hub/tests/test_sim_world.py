@@ -1,9 +1,10 @@
-"""Simulator unit tests (assignment 3.2, scenario S1 timeline). Owner: M8."""
+# Author: Mikhail Li (12236295)
+"""Simulator unit tests (assignment 3.2, scenario S1 timeline)."""
 import math
 from pathlib import Path
 
 from smart_hub import hub_map
-from smart_hub.sim_world import BOARDING_CAPACITY, STEP_SEC, World
+from smart_hub.sim_world import apply_variant, BOARDING_CAPACITY, STEP_SEC, World
 import yaml
 
 SCENARIOS = Path(__file__).resolve().parents[1] / 'scenarios'
@@ -23,11 +24,32 @@ def queue_count(world):
     return sum(1 for p in world.peds.values() if p.zone == 'Q')
 
 
-def test_all_scenarios_load_and_run():
+def test_all_scenarios_and_variants_load_and_run():
     for path in sorted(SCENARIOS.glob('*.yaml')):
-        world = World(load(path.stem), seed=1)
-        run_until(world, min(world.duration, 130.0))
-        assert not [e for e in world.log if e.event == 'UNKNOWN_EVENT']
+        scenario = load(path.stem)
+        for variant in [''] + sorted(scenario.get('variants') or {}):
+            world = World(apply_variant(scenario, variant), seed=1)
+            run_until(world, min(world.duration, 60.0))
+            assert not [e for e in world.log if e.event == 'UNKNOWN_EVENT'], (path, variant)
+
+
+def test_variant_removes_and_adds_events():
+    s = apply_variant(load('S7'), 'no_ready')
+    assert 'confirm_ready' not in [e['type'] for e in s['events']]
+    s = apply_variant(load('S3'), 'cancel_during_approach')
+    assert 'cancel_goal' in [e['type'] for e in s['events']]
+
+
+def test_entrance_barrier_flow():
+    w = World({'events': [{'t': 0.0, 'type': 'car_at_entrance', 'client': 'C1'}]}, seed=0)
+    w.reservations['C1'] = 'P2'
+    w.step()
+    assert w.entrance_vehicle() == 'C1'
+    w.device_request('barrier', True)
+    run_until(w, 2.0)
+    assert w.barrier.passage_occupied and not w.device_request('barrier', False)
+    run_until(w, 4.0)
+    assert w.slots['P2'] and not w.barrier.passage_occupied
 
 
 def test_same_seed_is_deterministic():
@@ -132,8 +154,10 @@ def test_driver_events_are_queued_for_the_node():
     run_until(w, 5.1)
     assert [r['type'] for r in w.requests] == ['reserve', 'reserve']
     w.requests.clear()
-    w.reservations['C1'] = 'P2'
     run_until(w, 8.1)
+    assert w.entrance_vehicle() == 'C1'          # waits at the closed barrier
+    w.reservations['C1'] = 'P2'
+    w.inject({'type': 'occupy_reserved_slot', 'client': 'C1'})
     assert w.slots['P2'] is True
 
 

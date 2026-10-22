@@ -1,5 +1,6 @@
+# Author: Mikhail Li (12236295)
 """
-Metric helpers for metrics_logger (assignment 21.2). Owner: M5.
+Metric helpers for metrics_logger (assignment 21.2).
 
 Nearest-rank percentiles, running series summaries, latency parsing from event reasons and
 crossing-conflict detection from ground truth.

@@ -1,13 +1,31 @@
-"""Bring up the full hub: ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 mode:=sim."""
+# Author: Mikhail Li (12236295)
+"""
+Bring up the full hub.
+
+  ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 mode:=sim [variant:=...]
+      [rviz:=true] [record:=true]
+
+record:=true writes a rosbag of the assignment 20.2 topics to evidence/bags/.
+"""
+from datetime import datetime
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+BAG_TOPICS = [
+    '/hub/queue', '/hub/demand', '/hub/vehicles', '/hub/bus_arrival',
+    '/parking/state', '/traffic/edges', '/crossing/state',
+    '/robot/odom', '/robot/cmd_vel_candidate', '/robot/cmd_vel',
+    '/bus/cmd_vel_candidate', '/bus/cmd_vel', '/hub/estop',
+    '/hub/safety', '/hub/events', '/tf', '/tf_static',
+    '/sim/truth/vehicles', '/sim/truth/pedestrians', '/hub/metrics',
+]
 
 NODES = [
     'scenario_runner',
@@ -42,10 +60,15 @@ def generate_launch_description():
         if name == 'scenario_runner':
             # The simulator replaces the physical world; hardware mode never starts it.
             extra = {'scenario': scenario, 'seed': ParameterValue(seed, value_type=int),
+                     'variant': LaunchConfiguration('variant'),
                      'scenario_dir': os.path.join(share, 'scenarios')}
             condition = sim_only
         elif name == 'actuator_bridge':
             extra = {'mode': mode}
+        elif name == 'hub_ui':
+            extra = {'port': ParameterValue(LaunchConfiguration('ui_port'), value_type=int)}
+        elif name == 'hub_coordinator':
+            extra = {'dispatch_mode': LaunchConfiguration('dispatch_mode')}
         nodes.append(Node(
             package='smart_hub', executable=name, name=name,
             output='screen', parameters=[params, extra], condition=condition,
@@ -57,11 +80,24 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('rviz')),
     )
 
+    stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    bag = ExecuteProcess(
+        cmd=['ros2', 'bag', 'record', '-o',
+             ['evidence/bags/', scenario, '_s', seed, '_' + stamp], *BAG_TOPICS],
+        output='log', condition=IfCondition(LaunchConfiguration('record')),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('scenario', default_value='S1', description='S1..S9'),
         DeclareLaunchArgument('seed', default_value='42'),
         DeclareLaunchArgument('mode', default_value='sim', description='sim | hardware'),
         DeclareLaunchArgument('rviz', default_value='false', description='start RViz'),
+        DeclareLaunchArgument('variant', default_value='', description='scenario test variant'),
+        DeclareLaunchArgument('record', default_value='false', description='record a rosbag'),
+        DeclareLaunchArgument('ui_port', default_value='8080', description='web UI port'),
+        DeclareLaunchArgument('dispatch_mode', default_value='predictive',
+                              description='predictive | reactive bus dispatch'),
         *nodes,
         rviz,
+        bag,
     ])

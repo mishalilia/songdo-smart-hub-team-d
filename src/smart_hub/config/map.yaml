@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 # Common map M1 (assignment sections 2-3).
 # Origin south-west corner, +x east, +y north, metres / radians. Frame: map.
 frame_id: map

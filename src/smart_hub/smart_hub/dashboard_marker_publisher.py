@@ -1,5 +1,6 @@
+# Author: Mikhail Li (12236295)
 """
-dashboard_marker_publisher — owner M8. Read-only: no control authority.
+dashboard_marker_publisher. Read-only: no control authority.
 
 Publishes /hub/markers (5 Hz) for RViz (assignment 3.2): map graph coloured by edge state,
 crossing ownership, queue zone, parking state, agents and obstacle footprints, driven
@@ -12,6 +13,7 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from smart_hub import hub_map
+from smart_hub.params import check_parameters
 from smart_hub.qos import R10, R1T
 from smart_hub_interfaces.msg import (
     BusArrival, CrossingState, DemandPrediction, EdgeStateArray, ParkingState, QueueState,
@@ -54,6 +56,7 @@ class DashboardMarkerPublisher(Node):
         super().__init__('dashboard_marker_publisher')
         # EdgeState has no congestion flag; the display re-applies the density rule (12.2).
         self.declare_parameter('congestion_density_threshold', 0.70)
+        check_parameters(self)
         self.markers_pub = self.create_publisher(MarkerArray, '/hub/markers', R10)
 
         self.vehicles = None

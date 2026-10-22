@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 # Scalability test (midterm): load grows while the robot drives scripted routes.
 # Scripted agents do not use the crossing lock, so robot trips on shared roads finish
 # before the background cars appear. Watch the dashboard for data age and rates under load.

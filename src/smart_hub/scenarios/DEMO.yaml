@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 # Midterm demonstration: robot and bus motion, boarding, IoT devices, faults, load.
 # Simulator-only (scripted routes); works without the mission / safety nodes.
 scenario_id: DEMO

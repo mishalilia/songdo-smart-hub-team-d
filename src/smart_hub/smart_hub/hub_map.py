@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 """
 Map M1 loaded from config/map.yaml (assignment sections 2-3).
 

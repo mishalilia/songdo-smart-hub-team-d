@@ -1,5 +1,6 @@
+# Author: Mikhail Li (12236295)
 """
-Scalability benchmark — owner M8.
+Scalability benchmark.
 
 Measures how per-cycle compute of the simulator grows with load: world step (20 Hz budget
 50 ms), observation generation for the published topics (vehicles with edge assignment,

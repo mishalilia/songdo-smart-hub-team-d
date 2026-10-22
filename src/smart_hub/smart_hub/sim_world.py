@@ -1,5 +1,6 @@
+# Author: Mikhail Li (12236295)
 """
-Deterministic 2D world used by scenario_runner (assignment 3.2). Owner: M8.
+Deterministic 2D world used by scenario_runner (assignment 3.2).
 
 Pure Python (no rclpy): fixed time step, seeded randomness, timed scenario events,
 unicycle kinematics with swept collision checks, private ground truth and noisy
@@ -26,6 +27,7 @@ DOCK_TOLERANCE_M = 0.20
 STOPPED_SPEED_MPS = 0.02
 CROSSING_PEDESTRIAN_POS = (5.0, 3.0)
 QUEUE_MARGIN_M = 0.1
+CROWD_ZONE_MARGIN_M = 0.6
 LANE_CLEARANCE_M = 0.6
 GRAVITY = 9.81
 
@@ -58,6 +60,7 @@ class Agent:
     route: list = field(default_factory=list)   # scripted cars: node ids, looped
     route_index: int = 0
     loop: bool = True           # scripted route: loop (background cars) or stop at the end
+    hidden: bool = False        # looping car waiting off the road to re-enter its route
     speed: float = 0.0          # scripted cars: cruise speed
     frozen: bool = False        # observation source frozen (stale stamp)
     in_collision: str = ''
@@ -118,6 +121,10 @@ class World:
                              for s in hub_map.PARKING_SLOTS}
         self.camera = Sensor('camera', 'camera')
         self._door_was_open = False
+        self.crossing_owner = ''    # from /crossing/state: background cars yield to it
+        self.entrance = []          # cars waiting at the parking barrier: [client, since]
+        self._passage_until = -math.inf
+        self._passing = None
         self._boarded_this_stop = 0
         self._next_boarding_t = math.inf
 
@@ -201,6 +208,9 @@ class World:
             a.distance_m += math.hypot(a.x - x0, a.y - y0)
             self._integrate_energy(a)
         self._step_devices()
+        if self.door.position > 0.0 and abs(self.agents['bus1'].v) > STOPPED_SPEED_MPS:
+            self._emit('bus1', 'DOOR_OPEN_MOVING', 'violation: bus moving with door open')
+        self._step_entrance()
         self._boarding()
         self.t = round(self.t + STEP_SEC, 6)
 
@@ -352,7 +362,7 @@ class World:
             self._ev_spawn_car({
                 'id': '%s_slow%d' % (ev['edge'], i), 'route': [a, b],
                 'speed_mps': ev.get('speed_mps', 0.10),
-                'start_fraction': (i + 0.5) / count * 0.8,
+                'start_fraction': 0.3 + (i + 0.5) / count * 0.6,   # outside crossing C
             })
 
     def _ev_spawn_random_cars(self, ev):
@@ -381,9 +391,9 @@ class World:
             for _ in range(50):
                 x = self.rng.uniform(xmin + 0.2, xmax - 0.2)
                 y = self.rng.uniform(ymin + 0.2, ymax - 0.2)
-                if hub_map.point_in_rect((x, y), hub_map.QUEUE_Q) or \
-                        hub_map.point_in_rect((x, y), hub_map.CROSSING_C):
-                    continue
+                if _near_rect(x, y, hub_map.QUEUE_Q, CROWD_ZONE_MARGIN_M) or \
+                        _near_rect(x, y, hub_map.CROSSING_C, CROWD_ZONE_MARGIN_M):
+                    continue   # well clear of Q and C, so sensor noise never moves them in
                 edges = hub_map.VEHICLE_EDGES + hub_map.PARKING_EDGES + hub_map.ROBOT_EDGES
                 if any(_point_segment_distance((x, y), hub_map.NODES[a], hub_map.NODES[b]) < 0.7
                        for a, b in edges):
@@ -392,6 +402,36 @@ class World:
                        for p in self.peds.values()):
                     self._new_ped('X', x, y)
                     break
+
+    def _ev_car_at_entrance(self, ev):
+        """Queue a car at the parking barrier; the entrance sensor reports its id."""
+        self.entrance.append([ev['client'], self.t])
+
+    def entrance_vehicle(self):
+        """Vehicle id currently seen by the entrance sensor ('' when the lane is empty)."""
+        return self.entrance[0][0] if self.entrance else ''
+
+    def _step_entrance(self):
+        if self._passing is not None and self.t >= self._passage_until:
+            client = self._passing
+            slot = self.reservations.get(client) or next(
+                (s for s, occ in sorted(self.slots.items()) if not occ), '')
+            if slot:
+                self.slots[slot] = True
+            self._emit(client, 'CAR_PARKED', slot or 'no free slot')
+            self._passing = None
+            self.barrier.passage_occupied = False
+        if not self.entrance or self._passing is not None:
+            return
+        client, since = self.entrance[0]
+        if self.barrier.is_open:
+            self.entrance.pop(0)
+            self._passing, self._passage_until = client, self.t + 2.0
+            self.barrier.passage_occupied = True          # the barrier may not close now
+            self._emit(client, 'CAR_ENTERING', 'barrier open')
+        elif self.t - since > 15.0:
+            self.entrance.pop(0)
+            self._emit(client, 'CAR_LEFT', 'barrier stayed closed')
 
     def _ev_set_slot(self, ev):
         self.slots[ev['slot']] = bool(ev['occupied'])
@@ -447,7 +487,7 @@ class World:
     def _obstructions(self, agent):
         """Yield (id, x, y, radius) of everything the agent may collide with."""
         for o in self.agents.values():
-            if o is not agent:
+            if o is not agent and not o.hidden:
                 yield o.agent_id, o.x, o.y, o.radius
         for p in self.peds.values():
             yield p.ped_id, p.x, p.y, PEDESTRIAN_RADIUS
@@ -460,6 +500,9 @@ class World:
 
     def _move_controlled(self, a):
         if self.t - a.cmd_time > COMMAND_TIMEOUT_SEC:
+            if a.v != 0.0 or a.w != 0.0:
+                # Actuator-side watchdog: final command expired (e.g. supervisor crash).
+                self._emit(a.agent_id, 'CMD_TIMEOUT', 'final command expired, motors zero')
             a.v = a.w = 0.0
         if a.v == 0.0 and a.w == 0.0:
             return
@@ -485,12 +528,22 @@ class World:
         a.yaw = math.atan2(math.sin(yaw), math.cos(yaw))
 
     def _move_scripted(self, a):
+        if a.hidden:
+            sx, sy = hub_map.NODES[a.route[0]]
+            if not self._collides(a, sx, sy):
+                a.x, a.y, a.route_index, a.hidden = sx, sy, 1, False
+            return
         tx, ty = hub_map.NODES[a.route[a.route_index]]
         dx, dy = tx - a.x, ty - a.y
         remaining = math.hypot(dx, dy)
         step = min(a.speed * STEP_SEC, remaining)
         nx = a.x + step * dx / remaining if remaining > 0 else a.x
         ny = a.y + step * dy / remaining if remaining > 0 else a.y
+        # Background cars obey the crossing: no entry into C while someone owns it.
+        if a.kind == 'car' and self.crossing_owner and \
+                _footprint_in_c(nx, ny, a.radius) and not _footprint_in_c(a.x, a.y, a.radius):
+            a.v = 0.0
+            return
         # Keep headway: stop behind anything ahead within a small gap.
         if self._collides(a, nx + 0.1 * dx / max(remaining, 1e-9),
                           ny + 0.1 * dy / max(remaining, 1e-9)):
@@ -508,10 +561,11 @@ class World:
                 a.route, a.v, a.controlled = [], 0.0, a.kind in ('bus', 'robot')
                 a.cmd_time = -math.inf
                 return
-            # Loop: re-enter at the route start (when free) to keep a steady flow.
+            # Loop: re-enter at the route start to keep a steady flow; while the start is
+            # occupied the car leaves the road instead of blocking the end node.
             sx, sy = hub_map.NODES[a.route[0]]
             if self._collides(a, sx, sy):
-                a.v = 0.0
+                a.v, a.hidden = 0.0, True
                 return
             a.x, a.y, a.route_index = sx, sy, 1
 
@@ -545,8 +599,9 @@ class World:
         self.camera.online = not self.camera_frozen()
         self.camera.step(STEP_SEC)
         if self.door.position >= 1.0 and not self._door_was_open:
+            # First passenger boards as soon as the door is open, then one every 2 s.
             self._boarded_this_stop = 0
-            self._next_boarding_t = self.t + BOARDING_DWELL_SEC / BOARDING_CAPACITY
+            self._next_boarding_t = self.t
         self._door_was_open = self.door.position >= 1.0
 
     def devices(self):
@@ -619,6 +674,8 @@ class World:
         """Return (agent, x, y, yaw, speed, edge_id) with noise; frozen flag on agent."""
         out = []
         for a in sorted(self.agents.values(), key=lambda q: q.agent_id):
+            if a.hidden:
+                continue
             noise = 0.0 if a.kind == 'obstacle' else noise_m
             out.append((a, a.x + self.rng.gauss(0.0, noise), a.y + self.rng.gauss(0.0, noise),
                         a.yaw, abs(a.v), self.edge_of(a)))
@@ -626,6 +683,36 @@ class World:
 
     def observed_slots(self):
         return {s: occ for s, occ in self.slots.items() if self.slot_connected[s]}
+
+
+def _near_rect(x, y, rect, margin):
+    xmin, xmax, ymin, ymax = rect
+    return xmin - margin <= x <= xmax + margin and ymin - margin <= y <= ymax + margin
+
+
+def _footprint_in_c(x, y, radius):
+    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
+    return xmin - radius <= x <= xmax + radius and ymin - radius <= y <= ymax + radius
+
+
+def apply_variant(scenario, variant):
+    """
+    Return the scenario with a test variant applied.
+
+    A variant lists extra events; an item {type: remove, event_type: X} drops the base
+    events of type X. Unknown variants raise KeyError.
+    """
+    if not variant:
+        return scenario
+    variants = scenario.get('variants') or {}
+    if variant not in variants:
+        raise KeyError('unknown variant %r (have: %s)' % (
+            variant, ', '.join(sorted(variants)) or 'none'))
+    extra = list(variants[variant] or [])
+    dropped = {e['event_type'] for e in extra if e.get('type') == 'remove'}
+    events = [e for e in scenario.get('events', []) if e['type'] not in dropped]
+    events += [e for e in extra if e.get('type') != 'remove']
+    return dict(scenario, events=events)
 
 
 def _point_segment_distance(p, a, b):

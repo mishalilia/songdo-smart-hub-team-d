@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 """Map M1 invariants (assignment 2-3)."""
 from smart_hub import hub_map
 from smart_hub.hub_map import edge_id, edge_length

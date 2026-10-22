@@ -1,3 +1,4 @@
+# Author: Mikhail Li (12236295)
 """
 QoS profiles from assignment section 5.
 
