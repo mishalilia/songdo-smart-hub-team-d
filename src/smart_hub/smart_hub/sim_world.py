@@ -383,7 +383,8 @@ class World:
                 self._ev_spawn_car({'id': car_id, 'route': route, 'speed_mps': speed,
                                     'start_fraction': self.rng.uniform(0.1, 0.9)})
                 car = self.agents[car_id]
-                if not self._collides(car, car.x, car.y):
+                if not self._collides(car, car.x, car.y) and \
+                        not footprint_in_c(car, CROSSING_MARGIN_M):    # never appear inside C
                     placed += 1
                     break
                 del self.agents[car_id]
