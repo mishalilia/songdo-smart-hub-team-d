@@ -1,9 +1,11 @@
+# Author: Vladislav Li (12250245)
 """
-Congestion-aware Dijkstra over map M1 (assignment 13.2, 18.3). Owner: M6.
+Congestion-aware Dijkstra over map M1 (assignment 13.2, 18.3).
 
 Based on the handbook's companion route engine (appendix A).
-TODO(M6): replan rule (15 % improvement, 2 s cooldown), stale-critical edges -> blocked,
-          waypoints for ComputeRoute.Response, oracle test vs. exhaustive path enumeration (T11).
+Related pieces live elsewhere: route_planner removes blocked / invalid edges and fails on
+stale edge states, robot_manager applies the replan rule (15 % improvement, 2 s period),
+and tests/test_route_oracle.py checks Dijkstra against exhaustive path enumeration (T11).
 """
 import heapq
 import math
