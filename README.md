@@ -194,6 +194,10 @@ ros2 run smart_hub train_demand_model --episodes 30
 
 # compute scalability -> evidence/scalability.csv
 ros2 run smart_hub scalability_benchmark
+
+# S1 on a recorded video (camera path): live, and offline against manual counts
+ros2 launch smart_hub s1_video.launch.py video:=/path/to/vtest.avi
+ros2 run smart_hub evaluate_s1_video --video /path/to/vtest.avi --truth evidence/s1_video/truth.csv
 ```
 
 ## Results (midterm)
@@ -203,6 +207,7 @@ Verification matrix, 95 runs (`evidence/test_matrix/summary.md`): **95/95 passed
 | Item | Result |
 |------|--------|
 | S1 queue counting | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.93 s after camera freeze |
+| S1 on real video (PETS 2009 view, 12 hand-counted frames) | MAE 1.0 person, exact 33 %, within ±1 75 %, HOG detector 216 ms/frame |
 | S3 bus docking (10 runs) | position error ≤ 0.20 m, yaw ≤ 0.17 rad; ETA error at 5 m within 2.3 s |
 | S4 parking (20 simultaneous pairs) | 0 double allocations, service p95 84 ms |
 | S5 congestion | precision 1.00, recall 1.00; 0 false alarms in 10 free-flow runs |

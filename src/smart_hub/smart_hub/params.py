@@ -54,6 +54,7 @@ RANGES = {
 }
 CHOICES = {
     'mode': ('sim', 'hardware'),
+    'input_mode': ('sim', 'camera'),
     'dispatch_mode': ('predictive', 'reactive'),
 }
 

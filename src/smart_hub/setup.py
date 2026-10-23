@@ -45,6 +45,8 @@ setup(
             'hub_ui = smart_hub.hub_ui:main',
             'train_demand_model = smart_hub.train_demand_model:main',
             'run_test_matrix = smart_hub.test_matrix:main',
+            'video_source = smart_hub.video_source:main',
+            'evaluate_s1_video = smart_hub.evaluate_s1_video:main',
         ],
     },
 )
