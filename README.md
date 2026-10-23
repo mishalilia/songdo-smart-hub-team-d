@@ -207,7 +207,7 @@ Verification matrix, 95 runs (`evidence/test_matrix/summary.md`): **95/95 passed
 | Item | Result |
 |------|--------|
 | S1 queue counting | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.93 s after camera freeze |
-| S1 on real video (PETS 2009 view, 12 hand-counted frames) | MAE 1.0 person, exact 33 %, within ±1 75 %, HOG detector 216 ms/frame |
+| S1 on real video (PETS 2009 view, 108 hand-annotated frames) | MAE 1.13 (target ≤ 1: not met), exact 26 %, within ±1 70 %, undercounts by 0.83; MAE 1.77 on 22 partially occluded frames, 0.97 on the rest; 213 ms/frame |
 | S3 bus docking (10 runs) | position error ≤ 0.20 m, yaw ≤ 0.17 rad; ETA error at 5 m within 2.3 s |
 | S4 parking (20 simultaneous pairs) | 0 double allocations, service p95 84 ms |
 | S5 congestion | precision 1.00, recall 1.00; 0 false alarms in 10 free-flow runs |
