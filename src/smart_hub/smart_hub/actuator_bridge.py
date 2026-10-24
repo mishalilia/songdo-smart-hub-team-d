@@ -1,5 +1,6 @@
+# Author: Maftuna Khalimjonova (12236681)
 """
-actuator_bridge — owner M9.
+actuator_bridge.
 
 The only hardware-specific layer. In sim mode it forwards nothing (simulator reads the
 final commands); in hardware mode it drives motors / servo / LEDs. Independently expires
@@ -11,6 +12,7 @@ import time
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
+from smart_hub.params import check_parameters
 from smart_hub.qos import R1
 from std_msgs.msg import Bool
 
@@ -21,6 +23,7 @@ class ActuatorBridge(Node):
         super().__init__('actuator_bridge')
         self.declare_parameter('mode', 'sim')  # sim | hardware (explicit opt-in)
         self.declare_parameter('command_timeout_sec', 0.5)
+        check_parameters(self)
 
         self.last_cmd = {'robot': None, 'bus': None}
         self.create_subscription(Twist, '/robot/cmd_vel', lambda m: self.on_cmd('robot', m), R1)
@@ -37,13 +40,15 @@ class ActuatorBridge(Node):
         self.last_cmd[agent] = (msg, time.monotonic())
 
     def on_door_request(self, msg):
-        pass  # TODO(M9): open only when bus measured stopped; publish measured status
+        pass  # hardware mode only (not built: no hardware); sim mode: the simulator's door
 
     def on_barrier_request(self, msg):
-        pass  # TODO(M9): valid owner + clear entrance sensor; never close on occupied lane
+        pass  # hardware mode only (not built: no hardware); sim mode: the simulator's barrier
 
     def tick(self):
-        # TODO(M9): drive hardware; on expiry command zero independently of the supervisor
+        # Hardware mode would drive the motors here and zero them on command expiry (optional
+        # physical part, assignment 22, not built). In sim mode the simulator applies the same
+        # independent expiry (CMD_TIMEOUT, verified by T17).
         pass
 
 

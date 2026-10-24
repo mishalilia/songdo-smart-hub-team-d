@@ -1,4 +1,5 @@
-# S9 — negative tests, degraded operation, emergency stop (assignment 16.3). Owner: M9
+# Author: Maftuna Khalimjonova (12236681)
+# S9 — negative tests, degraded operation, emergency stop (assignment 16.3).
 # The robot is moving from t = 2 s; stop asserted at 10 s, released input at 12 s,
 # reset rejected while a sensor is stale, accepted after sensors are restored.
 scenario_id: S9
