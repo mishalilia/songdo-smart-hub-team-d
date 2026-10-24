@@ -1,4 +1,5 @@
-# S6 — intelligent route replanning (assignment 13.3). Owner: M6
+# Author: Vladislav Li (12250245)
+# S6 — intelligent route replanning (assignment 13.3).
 scenario_id: S6
 duration_sec: 90
 events:

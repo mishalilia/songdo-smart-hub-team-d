@@ -1,4 +1,5 @@
-# S5 — congestion detection (assignment 12.1). Owner: M6
+# Author: Vladislav Li (12250245)
+# S5 — congestion detection (assignment 12.1).
 scenario_id: S5
 duration_sec: 75
 initial_vehicles:

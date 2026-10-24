@@ -1,0 +1,11 @@
+# Author: Vladislav Li (12250245)
+# T09 false-alarm check: free-flow traffic only (assignment 12.3: no false congestion in
+# ten free-flow runs). Two cars per loop, spaced, at the free-flow speed.
+scenario_id: S5_FREE
+duration_sec: 60
+initial_vehicles:
+  - {id: car1, route: [A, Cs, J, E], speed_mps: 0.35}
+  - {id: car2, route: [A, Cs, J, E], speed_mps: 0.35, start_fraction: 0.6}
+  - {id: car3, route: [A, N, Cn, B, U, E], speed_mps: 0.35}
+  - {id: car4, route: [A, N, Cn, B, U, E], speed_mps: 0.35, start_fraction: 0.6}
+events: []
