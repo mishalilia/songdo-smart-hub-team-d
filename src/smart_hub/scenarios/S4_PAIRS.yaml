@@ -1,0 +1,49 @@
+# Author: Nikita Pak (12250247)
+# T07: twenty simultaneous reservation pairs over the ROS services (assignment 11.3).
+# P1 occupied, P2 / P3 free; each pair must get two distinct slots; TTL 5 s frees them
+# before the next pair.
+scenario_id: S4_PAIRS
+duration_sec: 125
+initial_slots: {P1: OCCUPIED, P2: FREE, P3: FREE}
+events:
+  - {t: 1.0,  type: clear_stop_request}
+  - {t: 3.0, type: reserve, client: C00, request_id: pair00-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 3.0, type: reserve, client: C01, request_id: pair00-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 9.0, type: reserve, client: C02, request_id: pair01-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 9.0, type: reserve, client: C03, request_id: pair01-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 15.0, type: reserve, client: C04, request_id: pair02-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 15.0, type: reserve, client: C05, request_id: pair02-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 21.0, type: reserve, client: C06, request_id: pair03-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 21.0, type: reserve, client: C07, request_id: pair03-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 27.0, type: reserve, client: C08, request_id: pair04-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 27.0, type: reserve, client: C09, request_id: pair04-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 33.0, type: reserve, client: C10, request_id: pair05-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 33.0, type: reserve, client: C11, request_id: pair05-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 39.0, type: reserve, client: C12, request_id: pair06-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 39.0, type: reserve, client: C13, request_id: pair06-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 45.0, type: reserve, client: C14, request_id: pair07-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 45.0, type: reserve, client: C15, request_id: pair07-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 51.0, type: reserve, client: C16, request_id: pair08-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 51.0, type: reserve, client: C17, request_id: pair08-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 57.0, type: reserve, client: C18, request_id: pair09-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 57.0, type: reserve, client: C19, request_id: pair09-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 63.0, type: reserve, client: C20, request_id: pair10-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 63.0, type: reserve, client: C21, request_id: pair10-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 69.0, type: reserve, client: C22, request_id: pair11-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 69.0, type: reserve, client: C23, request_id: pair11-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 75.0, type: reserve, client: C24, request_id: pair12-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 75.0, type: reserve, client: C25, request_id: pair12-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 81.0, type: reserve, client: C26, request_id: pair13-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 81.0, type: reserve, client: C27, request_id: pair13-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 87.0, type: reserve, client: C28, request_id: pair14-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 87.0, type: reserve, client: C29, request_id: pair14-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 93.0, type: reserve, client: C30, request_id: pair15-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 93.0, type: reserve, client: C31, request_id: pair15-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 99.0, type: reserve, client: C32, request_id: pair16-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 99.0, type: reserve, client: C33, request_id: pair16-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 105.0, type: reserve, client: C34, request_id: pair17-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 105.0, type: reserve, client: C35, request_id: pair17-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 111.0, type: reserve, client: C36, request_id: pair18-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 111.0, type: reserve, client: C37, request_id: pair18-b, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 117.0, type: reserve, client: C38, request_id: pair19-a, preferred_slot: '', ttl_sec: 5.0}
+  - {t: 117.0, type: reserve, client: C39, request_id: pair19-b, preferred_slot: '', ttl_sec: 5.0}
