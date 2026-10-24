@@ -1,4 +1,5 @@
-# S1 — passenger detection and queue counting (assignment 8.3). Owner: M1
+# Author: Andrey Li (12250249)
+# S1 — passenger detection and queue counting (assignment 8.3).
 # Start empty 5 s; +3 at 5 s, +2 at 10 s, -1 at 15 s; crossing pedestrian 20-24 s;
 # 0.3 s occlusion at 17 s; camera freeze at 30 s; run 40 s.
 scenario_id: S1
