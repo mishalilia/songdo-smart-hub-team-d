@@ -1,4 +1,5 @@
-"""Route engine unit tests (T11/T12 seeds). Owner: M6."""
+# Author: Vladislav Li (12250245)
+"""Route engine unit tests (T11/T12 seeds)."""
 import math
 
 from smart_hub.hub_map import edge_id
