@@ -1,7 +1,7 @@
-# S7 — autonomous robot passenger escort (assignment 14.3). Owner: M7
-# Nominal escort R -> D with obstacle O inserted during ESCORT. Other runs: no readiness,
-# obstacle before crossing, cancel while moving, second goal while busy, unreachable
-# destination, odometry freeze — enable the commented events one at a time.
+# Author: Timur Klechshev (12235650)
+# S7 — autonomous robot passenger escort (assignment 14.3).
+# Nominal escort R -> D with obstacle O inserted during ESCORT.
+# Test variants (assignment 14.3): launch with variant:=<name>.
 scenario_id: S7
 duration_sec: 240
 robot: {start_node: R}
@@ -11,9 +11,26 @@ events:
      pickup: R, destination: D, max_duration_sec: 240.0}
   - {t: 6.0,  type: confirm_ready}
   - {t: 30.0, type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
-  # - {t: 40.0, type: cancel_goal, target: escort}                          # cancel while moving
-  # - {t: 10.0, type: escort_request, request_id: demo-02, pickup: R, destination: D}  # busy
-  # - {t: 20.0, type: freeze_odometry, duration_sec: 3.0}                   # odometry freeze
 expected:
   destination_error_m: 0.20
   feedback_min_hz: 2.0
+variants:
+  no_ready:
+    - {type: remove, event_type: confirm_ready}
+  obstacle_before_crossing:
+    - {type: remove, event_type: place_obstacle}
+    - {t: 3.0,  type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
+  congestion:
+    - {type: remove, event_type: place_obstacle}
+    - {t: 15.0, type: spawn_slow_vehicles, edge: Cs-J, count: 3, speed_mps: 0.05}
+  cancel_while_moving:
+    - {t: 20.0, type: cancel_goal, target: escort}
+  second_goal_while_busy:
+    - {t: 10.0, type: escort_request, request_id: demo-02, passenger_id: P02,
+       pickup: R, destination: D}
+  unreachable_destination:
+    - {type: remove, event_type: escort_request}
+    - {type: remove, event_type: confirm_ready}
+    - {t: 2.0,  type: escort_request, request_id: bad-01, pickup: R, destination: P1}
+  odometry_freeze:
+    - {t: 20.0, type: freeze_odometry, duration_sec: 3.0}
