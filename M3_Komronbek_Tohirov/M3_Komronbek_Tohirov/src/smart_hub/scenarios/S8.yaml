@@ -1,0 +1,18 @@
+# Author: Komronbek Tohirov (12235649)
+# S8 — integrated smart hub coordination (assignment 15.1).
+scenario_id: S8
+duration_sec: 300
+initial_slots: {P1: OCCUPIED, P2: FREE, P3: FREE}
+events:
+  - {t: 1.0,  type: clear_stop_request}            # startup latch -> ready (16.3)
+  - {t: 0.0,   type: arrival_rate, per_min: 2.0}                      # warm-up history
+  - {t: 60.0,  type: fill_queue, target: 7}                           # arrivals rise
+  - {t: 60.0,  type: arrival_rate, per_min: 6.0}
+  - {t: 65.0,  type: reserve, client: C1, request_id: c1-001, preferred_slot: P2, ttl_sec: 60.0}
+  - {t: 65.0,  type: reserve, client: C2, request_id: c2-001, preferred_slot: P2, ttl_sec: 60.0}
+  - {t: 70.0,  type: escort_request, request_id: s8-escort, pickup: R, destination: D}
+  - {t: 75.0,  type: confirm_ready}
+  - {t: 80.0,  type: crossing_pedestrian, duration_sec: 5.0}
+  - {t: 90.0,  type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
+  - {t: 120.0, type: remove_obstacle, id: O}
+  - {t: 180.0, type: arrival_rate, per_min: 0.5}                      # demand subsides
