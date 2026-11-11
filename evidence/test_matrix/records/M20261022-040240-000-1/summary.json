@@ -1,0 +1,185 @@
+{
+  "run_id": "FAULTS-m15400-s42-20261022-040345",
+  "scenario_id": "FAULTS",
+  "seed": "42",
+  "elapsed_sec": 14.4,
+  "commit": "unknown",
+  "config_sha256": "c72092517b79",
+  "machine": "Linux x86_64, 8 CPU",
+  "python": "3.12.3",
+  "latency_ms": {
+    "CLEAR_STOP_REQUEST_OK": {
+      "n": 1,
+      "mean": 31.72,
+      "p50": 31.72,
+      "p95": 31.72,
+      "max": 31.72
+    },
+    "CONFIRM_READY_OK": {
+      "n": 1,
+      "mean": 36.17,
+      "p50": 36.17,
+      "p95": 36.17,
+      "max": 36.17
+    },
+    "ROUTE_COMPUTED": {
+      "n": 3,
+      "mean": 0.31,
+      "p50": 0.19,
+      "p95": 0.58,
+      "max": 0.58
+    }
+  },
+  "topic_age_ms": {
+    "/camera/image_raw": {
+      "n": 145,
+      "mean": 14.471254703448276,
+      "p50": 8.622094,
+      "p95": 30.874434,
+      "max": 222.516184
+    },
+    "/crossing/state": {
+      "n": 143,
+      "mean": 2.0788677552447554,
+      "p50": 0.987378,
+      "p95": 5.737637,
+      "max": 37.141526
+    },
+    "/hub/demand": {
+      "n": 14,
+      "mean": 5.704332428571428,
+      "p50": 5.86914,
+      "p95": 9.785282,
+      "max": 9.785282
+    },
+    "/hub/queue": {
+      "n": 72,
+      "mean": 55.846099708333334,
+      "p50": 49.910438,
+      "p95": 101.583323,
+      "max": 192.316662
+    },
+    "/hub/safety": {
+      "n": 143,
+      "mean": 5.288659615384615,
+      "p50": 2.749085,
+      "p95": 14.307731,
+      "max": 105.879051
+    },
+    "/hub/vehicles": {
+      "n": 145,
+      "mean": 11.722623662068965,
+      "p50": 6.710777,
+      "p95": 21.489151,
+      "max": 220.20618
+    },
+    "/parking/state": {
+      "n": 30,
+      "mean": 3.746589133333333,
+      "p50": 1.34556,
+      "p95": 12.44823,
+      "max": 35.460066
+    },
+    "/robot/odom": {
+      "n": 289,
+      "mean": 8.064529975778546,
+      "p50": 3.112726,
+      "p95": 11.360507,
+      "max": 251.250048
+    },
+    "/sim/pedestrians": {
+      "n": 145,
+      "mean": 13.820745765517241,
+      "p50": 8.163549,
+      "p95": 30.548219,
+      "max": 222.272988
+    },
+    "/traffic/edges": {
+      "n": 30,
+      "mean": 13.426013433333333,
+      "p50": 4.242389,
+      "p95": 109.023665,
+      "max": 119.540313
+    }
+  },
+  "topic_rate_hz": {
+    "/hub/queue": 5.0,
+    "/hub/demand": 1.0,
+    "/hub/vehicles": 9.9,
+    "/traffic/edges": 2.0,
+    "/crossing/state": 10.0,
+    "/parking/state": 2.0,
+    "/hub/safety": 10.0,
+    "/robot/odom": 19.82,
+    "/sim/pedestrians": 9.9,
+    "/camera/image_raw": 9.9
+  },
+  "energy": {
+    "iot/barrier": {
+      "power_w": "0.300",
+      "energy_j": "4.335"
+    },
+    "iot/bus_door": {
+      "power_w": "0.200",
+      "energy_j": "2.890"
+    },
+    "iot/led/P1": {
+      "power_w": "0.200",
+      "energy_j": "2.850"
+    },
+    "iot/led/P2": {
+      "power_w": "0.200",
+      "energy_j": "2.850"
+    },
+    "iot/led/P3": {
+      "power_w": "0.200",
+      "energy_j": "2.850"
+    },
+    "iot/slot_sensor/P1": {
+      "power_w": "0.100",
+      "energy_j": "1.445"
+    },
+    "iot/slot_sensor/P2": {
+      "power_w": "0.100",
+      "energy_j": "1.445"
+    },
+    "iot/slot_sensor/P3": {
+      "power_w": "0.100",
+      "energy_j": "1.445"
+    },
+    "iot/camera": {
+      "power_w": "2.500",
+      "energy_j": "36.125"
+    },
+    "bus1": {
+      "power_w": "12.000",
+      "energy_j": "173.400",
+      "distance_m": "0.000",
+      "energy_per_m_j": "0.000"
+    },
+    "robot1": {
+      "power_w": "5.000",
+      "energy_j": "75.024",
+      "distance_m": "0.613",
+      "energy_per_m_j": "122.489"
+    }
+  },
+  "counts": {
+    "collisions": 0,
+    "crossing_conflicts": 0,
+    "safety_interventions": 1,
+    "goals_succeeded": 0,
+    "goals_aborted": 0,
+    "goals_canceled": 0,
+    "goals_rejected": 0,
+    "reroutes": 0,
+    "crossing_grants": 0,
+    "boarded": 0
+  },
+  "queue_wait_sec": {
+    "n": 0
+  },
+  "mission_time_sec": {
+    "n": 0
+  }
+}

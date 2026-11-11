@@ -1,0 +1,42 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.009,scenario_runner,RUN_START,seed=42,FAULTS-m21385-s42-20261022-035940
+-0.006,scenario_runner,SCENARIO_STARTED,waited=4.0s missing=,FAULTS-m21385-s42-20261022-035940
+0.077,A-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.085,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+0.077,A-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,B-Cn,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,B-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,Cn-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,Cn-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,Cn-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,Cs-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,D-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,E-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,E-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,P1-P2,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.098,P1,SLOT_UNKNOWN,was FREE,
+0.106,P2,SLOT_UNKNOWN,was FREE,
+0.109,P3,SLOT_UNKNOWN,was FREE,
+0.077,P2-P3,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,P3-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.077,R-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.690,P1,SLOT_FREE,was UNKNOWN,
+0.692,P2,SLOT_FREE,was UNKNOWN,
+0.698,P3,SLOT_FREE,was UNKNOWN,
+1.024,safety_supervisor,STOP_CLEARED,scenario,scenario_runner
+1.045,safety_supervisor,CLEAR_STOP_REQUEST_OK,OK latency_ms=20.41,
+1.054,robot1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+1.057,bus1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+2.063,scenario_runner,ESCORT_ACCEPTED,,65b9704d007f46459d96e86cd0f1ab54
+2.076,robot1,GOAL_ACCEPTED,escort,fault-01
+2.112,robot,ROUTE_COMPUTED,R->R OK latency_ms=1.74,
+2.162,robot1,ROUTE,TO_PICKUP R cost=0.0s,fault-01
+2.210,robot1,PICKUP_ARRIVED,waiting for /robot/confirm_ready,fault-01
+4.050,robot1,READY_CONFIRMED,,fault-01
+4.066,robot1,CONFIRM_READY_OK,READY_ACCEPTED latency_ms=20.10,
+4.113,robot,ROUTE_COMPUTED,R->D OK latency_ms=0.31,
+4.161,robot1,ROUTE,ESCORT R-W-Cn-Cs-J-D cost=31.4s,fault-01
+4.261,robot,ROUTE_COMPUTED,R->D OK latency_ms=0.20,
+6.926,robot1,CMD_TIMEOUT,"final command expired, motors zero",
+7.310,robot1,GOAL_ABORT,SAFE_STOP,fault-01
+7.329,scenario_runner,ESCORT_RESULT,status=6 reason=SAFE_STOP,65b9704d007f46459d96e86cd0f1ab54
