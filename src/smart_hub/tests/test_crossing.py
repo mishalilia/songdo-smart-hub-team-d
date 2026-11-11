@@ -1,7 +1,7 @@
 # Author: Komronbek Tohirov (12235649)
 """Crossing mutex (7.1, 18.4) and demand dispatch (9.3, T04) tests."""
 from smart_hub.crossing_arbiter import CrossingArbiter, FREE, HOLD, OWNED
-from smart_hub.dispatch_policy import DispatchPolicy
+from smart_hub.dispatch_policy import DispatchPolicy, forecast_problem
 
 
 def test_crossing_single_owner_and_pedestrian_priority():
@@ -59,3 +59,21 @@ def test_dispatch_fallback_and_invalid_inputs():
     assert p.update(1, False, 0.0, True, 8, True, False) == 'FALLBACK'
     q = DispatchPolicy()
     assert [q.update(t, True, 7.0, True, 7, False, False) for t in range(5)] == [None] * 5
+
+
+def test_forecast_is_gated_on_source_and_acquisition_age():
+    now = 500.0
+    assert forecast_problem(True, 30, 'ridge', now - 1.0, now) == ''
+    assert forecast_problem(False, 30, 'ridge', now - 1.0, now) == 'INVALID'
+    assert forecast_problem(True, 60, 'ridge', now - 1.0, now) == 'WRONG_SOURCE'
+    assert forecast_problem(True, 30, '', now - 1.0, now) == 'WRONG_SOURCE'
+    assert forecast_problem(True, 30, 'ridge', now - 3.5, now) == 'STALE_STAMP'
+    assert forecast_problem(True, 30, 'ridge', now + 1.0, now) == 'FUTURE_STAMP'
+    assert forecast_problem(True, 30, 'ridge', 0.0, now) == 'NO_STAMP'
+    assert forecast_problem(True, 30, 'ridge', now - 1.0, now, last_stamp=now - 0.5) == \
+        'OUT_OF_ORDER'
+    # A rejected forecast never dispatches by itself; the fresh queue is the fallback.
+    p = DispatchPolicy()
+    stale = forecast_problem(True, 30, 'ridge', now - 10.0, now)
+    assert [p.update(t, not stale, 9.0, False, 0, True, False) for t in range(5)] == [None] * 5
+    assert p.update(6, not stale, 9.0, True, 8, True, False) == 'FALLBACK'

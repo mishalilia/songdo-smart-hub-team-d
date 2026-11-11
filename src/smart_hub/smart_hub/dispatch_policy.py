@@ -6,7 +6,28 @@ Request one DockBus mission when the forecast is >= dispatch_high for three cons
 valid predictions and the bus is available; with an unavailable forecast fall back to the
 fresh observed queue (reason FALLBACK). One outstanding goal at a time, a request cooldown,
 and hysteresis: escalation clears only after five consecutive samples below dispatch_low.
+
+A forecast counts as valid only after forecast_problem() accepted it: explicit validity,
+the expected source (30 s horizon, named model) and the age and order of its supporting
+acquisition stamp. Anything else is "prediction unavailable" and uses the fallback.
 """
+from smart_hub.freshness import stamp_problem
+
+FORECAST_HORIZON_SEC = 30
+FORECAST_STALE_SEC = 3.0     # 1 Hz forecast + supporting queue sample at most 2 s old
+
+
+def forecast_problem(valid, horizon_sec, model_id, stamp, now, last_stamp=None,
+                     max_age_sec=FORECAST_STALE_SEC):
+    """Return '' when a /hub/demand message may drive dispatch, else the reason."""
+    if not valid:
+        return 'INVALID'
+    if horizon_sec != FORECAST_HORIZON_SEC or not model_id:
+        return 'WRONG_SOURCE'
+    problem = stamp_problem(stamp, now, max_age_sec)
+    if not problem and last_stamp is not None and stamp < last_stamp:
+        problem = 'OUT_OF_ORDER'
+    return problem
 
 
 class DispatchPolicy:

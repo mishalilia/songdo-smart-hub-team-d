@@ -8,6 +8,11 @@ Train and evaluate the S2 demand model (assignment 9.2, 9.4).
 3. Fit normalisation and ridge regression on training episodes, choose lambda on
    validation, report held-out MAE / RMSE against the persistence baseline and the
    inference latency.
+4. Uncertainty: overlapping windows of one episode are not independent trials, so the
+   errors are also reported per held-out episode, with a 95 % bootstrap interval of the
+   paired difference (model MAE - persistence MAE) that resamples whole episodes. Extra
+   unseen episodes (--holdout-extra, never used for fitting or selection) widen that
+   sample beyond the six test episodes of the 60/20/20 split.
 
   ros2 run smart_hub train_demand_model --episodes 30 \
       --model-out src/smart_hub/models/demand_ridge.json --evidence-dir evidence/demand
@@ -20,7 +25,8 @@ import random
 import time
 
 from smart_hub.demand_model import (
-    features, HISTORY_SEC, mae, RidgeModel, rmse, split_episodes, windows,
+    features, HISTORY_SEC, mae, paired_bootstrap, RidgeModel, rmse, split_episodes,
+    WARMUP_SEC, windows,
 )
 from smart_hub.metrics import percentile
 from smart_hub.sim_world import STEP_SEC, World
@@ -65,9 +71,39 @@ def stack(episodes, ids):
     return X, y, base
 
 
+def episode_errors(model, seed, series):
+    """Errors of one held-out episode (the independent unit of the evaluation)."""
+    X, y, base = windows(series)
+    preds = [model.predict(x) for x in X]
+    row = {'seed': seed, 'windows': len(y),
+           'model_mae': round(mae(preds, y), 4), 'model_rmse': round(rmse(preds, y), 4),
+           'persistence_mae': round(mae(base, y), 4),
+           'persistence_rmse': round(rmse(base, y), 4)}
+    row['delta_mae'] = round(row['model_mae'] - row['persistence_mae'], 4)
+    return row
+
+
+def episode_uncertainty(rows):
+    """Episode-level summary: mean MAE and bootstrap CI of the paired MAE difference."""
+    if not rows:
+        return {'episodes': 0}
+    boot = paired_bootstrap([r['delta_mae'] for r in rows])
+    return {
+        'episodes': len(rows),
+        'model_mae_mean': round(sum(r['model_mae'] for r in rows) / len(rows), 4),
+        'persistence_mae_mean': round(sum(r['persistence_mae'] for r in rows) / len(rows), 4),
+        'delta_mae_mean': round(boot['mean'], 4),
+        'delta_mae_ci95': [round(boot['ci95_low'], 4), round(boot['ci95_high'], 4)],
+        'episodes_model_better': sum(r['delta_mae'] < 0 for r in rows),
+        'resampling': 'whole episodes, 10000 bootstrap resamples, seed 0',
+    }
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--episodes', type=int, default=30)
+    parser.add_argument('--holdout-extra', type=int, default=24,
+                        help='further unseen episodes used only for per-episode errors')
     parser.add_argument('--seed', type=int, default=1000)
     parser.add_argument('--model-out', default=os.path.join(
         'src', 'smart_hub', 'models', 'demand_ridge.json'))
@@ -119,6 +155,18 @@ def main(args=None):
     }
     report['test']['model_no_worse_than_persistence'] = \
         report['test']['model_mae'] <= report['test']['persistence_mae']
+    # Independent unit = episode. The pooled numbers above are kept for comparison only.
+    per_episode = [episode_errors(model, seeds[i], episodes[i]) for i in test_ids]
+    extra_seeds = [opts.seed + opts.episodes + i for i in range(opts.holdout_extra)]
+    extra = [episode_errors(model, s, generate_episode(s)) for s in extra_seeds]
+    report['test_per_episode'] = per_episode
+    report['test_uncertainty'] = episode_uncertainty(per_episode)
+    report['holdout_extra_per_episode'] = extra
+    report['holdout_uncertainty'] = episode_uncertainty(per_episode + extra)
+    report['note'] = (
+        'Windows of one episode overlap and are not independent trials: use the '
+        'per-episode rows and the episode-level bootstrap interval for uncertainty. '
+        'Windows start after the %d s contiguous warm-up required online.' % WARMUP_SEC)
 
     os.makedirs(os.path.dirname(opts.model_out) or '.', exist_ok=True)
     model.save(opts.model_out)
@@ -134,6 +182,7 @@ def main(args=None):
             for t, q in enumerate(ep):
                 writer.writerow([seeds[i], split_of[i], t, q])
     print(json.dumps(report['test'], indent=2))
+    print(json.dumps(report['holdout_uncertainty'], indent=2))
     print('lambda', best, 'inference p95 ms %.4f' % report['inference_ms']['p95'])
     print('model ->', opts.model_out, '| evidence ->', opts.evidence_dir)
 
