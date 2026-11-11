@@ -28,6 +28,15 @@ def test_tracker_crossing_hold():
     assert not tr.crossing_occupied(3.1)
 
 
+def test_crossing_detection_inhibits_before_track_confirmation():
+    tr = ZoneTracker()
+    tr.update([(3.0, 5.5)], 0.0)                # someone in Q only
+    assert not tr.crossing_occupied(0.0)
+    tr.update([(3.0, 5.5), (5.0, 3.0)], 0.1)    # first foot-point inside C
+    assert tr.crossing_occupied(0.1)            # at once, no 0.4 s confirmation
+    assert tr.queue_count() == 0                # the queue count still needs confirmation
+
+
 def test_queue_membership_hysteresis():
     tr = ZoneTracker(zone_hysteresis_m=0.15)
     for t in (0.0, 0.2, 0.4, 0.6):

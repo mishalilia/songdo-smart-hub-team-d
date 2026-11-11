@@ -8,12 +8,15 @@ S1 video evaluation: run the camera path over a recorded video and compare with 
 Each frame goes through CameraCounter (HOG detection, foot points, homography) and the same
 ZoneTracker that passenger_detector uses; the queue count at each truth time is compared with
 the manual count (CSV `time_sec,count[,occluded]`). Writes counts.csv and result.json (MAE,
-exact-match rate, MAE on the frames marked as partially occluded, detector time per frame) to
---out. Precision/recall needs per-person box labels, which count annotations do not have.
+exact-match rate, MAE on the frames marked as partially occluded, false clears, detector
+time per frame with p95 / p99) to --out. The result is bound to its inputs by the SHA-256 of
+the video and of the label file, so a later detector is compared on the same frozen labels.
+Precision/recall needs per-person box labels, which count annotations do not have.
 `--sheet` instead draws zone Q on frames at the given seconds, for counting people by hand.
 """
 import argparse
 import csv
+import hashlib
 import json
 import os
 import time
@@ -22,6 +25,7 @@ import cv2
 import numpy as np
 from smart_hub import hub_map
 from smart_hub.camera_detector import CameraCounter
+from smart_hub.metrics import percentile
 from smart_hub.tracker import ZoneTracker
 
 
@@ -50,12 +54,17 @@ def make_sheet(video, seconds, out, counter):
     cv2.imwrite(out, np.vstack(rows))
 
 
+def sha256(path):
+    with open(path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 def run(video, counter):
-    """Return [(t, count)] once per processed frame and the mean detector time (ms)."""
+    """Return [(t, count)] once per processed frame and the detector times (ms)."""
     cap = cv2.VideoCapture(video)
     fps = cap.get(cv2.CAP_PROP_FPS) or 10.0
     tracker = ZoneTracker()
-    out, spent, n = [], 0.0, 0
+    out, spent, n = [], [], 0
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -63,11 +72,11 @@ def run(video, counter):
         t = n / fps
         start = time.monotonic()
         points = counter.map_points(frame)
-        spent += time.monotonic() - start
+        spent.append(1000.0 * (time.monotonic() - start))
         tracker.update(points, t)
         out.append((t, tracker.queue_count()))
         n += 1
-    return out, 1000.0 * spent / max(n, 1)
+    return out, spent
 
 
 def main(args=None):
@@ -84,11 +93,16 @@ def main(args=None):
                    counter)
         return
     counts, ms = run(opts.video, counter)
+    if not counts:
+        parser.error('no frames could be read from %s' % opts.video)
     os.makedirs(opts.out, exist_ok=True)
     with open(os.path.join(opts.out, 'counts.csv'), 'w', newline='') as f:
         csv.writer(f).writerows([('time_sec', 'count')] + [('%.1f' % t, c) for t, c in counts])
-    result = {'video': os.path.basename(opts.video), 'frames': len(counts),
-              'detector_ms_per_frame': round(ms, 1)}
+    result = {'video': os.path.basename(opts.video), 'video_sha256': sha256(opts.video),
+              'frames': len(counts),
+              'detector_ms_per_frame': round(sum(ms) / max(len(ms), 1), 1),
+              'detector_ms_p95': round(percentile(ms, 95), 1),
+              'detector_ms_p99': round(percentile(ms, 99), 1)}
     if opts.truth:
         with open(opts.truth) as f:
             truth = [(float(r['time_sec']), int(r['count']), r.get('occluded') == '1')
@@ -105,6 +119,8 @@ def main(args=None):
                       mae_occluded=round(sum(occ) / len(occ), 2) if occ else None,
                       mae_not_occluded=round(sum(clear) / len(clear), 2) if clear else None,
                       bias=round(sum(p['system'] - p['manual'] for p in pairs) / len(pairs), 2),
+                      false_clear=sum(p['system'] == 0 and p['manual'] > 0 for p in pairs),
+                      truth_sha256=sha256(opts.truth),
                       precision_recall='not available: count labels, no per-person boxes')
         result.update(samples=len(pairs), mae=round(sum(errors) / len(errors), 2),
                       exact_match=round(sum(e == 0 for e in errors) / len(errors), 2),

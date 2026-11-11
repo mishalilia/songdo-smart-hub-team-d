@@ -4,8 +4,11 @@ Pedestrian tracking and zone counting (assignment 8.2, 18.1).
 
 Synthetic baseline: associates map-frame foot-points over time (nearest neighbour with a
 gate), confirms a track after it has been seen for `confirm_sec`, keeps it through short
-occlusions (`occlusion_sec`), and counts confirmed tracks inside Q and C. Crossing
-occupancy is held until C has been clear for `crossing_clear_sec`.
+occlusions (`occlusion_sec`), and counts confirmed tracks inside Q.
+Crossing risk is assessed independently of the queue count (review): a single foot-point
+inside C marks the crossing occupied at once, without waiting for track confirmation, a
+track that was inside C keeps it occupied through an occlusion, and the occupancy is held
+until C has been clear for `crossing_clear_sec`.
 """
 from dataclasses import dataclass
 import math
@@ -60,7 +63,9 @@ class ZoneTracker:
             t = self.tracks[tid]
             if now - t.last_seen > self.occlusion_sec + 1e-9:
                 del self.tracks[tid]
-        if any(t.confirmed and hub_map.point_in_rect((t.x, t.y), hub_map.CROSSING_C)
+        # Every surviving track holds its last observed position, so this covers a new
+        # unconfirmed detection in C as well as a track occluded while inside C.
+        if any(hub_map.point_in_rect((t.x, t.y), hub_map.CROSSING_C)
                for t in self.tracks.values()):
             self._crossing_last_seen = now
 
