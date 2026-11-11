@@ -39,31 +39,31 @@
     ]
   },
   "windows": {
-    "train": 5400,
-    "validation": 1800,
-    "test": 1800
+    "train": 4860,
+    "validation": 1620,
+    "test": 1620
   },
   "validation_mae_by_lambda": {
-    "0.01": 1.6688,
-    "0.1": 1.6687,
-    "1.0": 1.6681,
-    "10.0": 1.665,
-    "100.0": 1.661,
-    "1000.0": 1.6399,
-    "10000.0": 2.0393
+    "0.01": 1.6391,
+    "0.1": 1.639,
+    "1.0": 1.6383,
+    "10.0": 1.634,
+    "100.0": 1.6279,
+    "1000.0": 1.5957,
+    "10000.0": 1.9816
   },
   "lambda": 1000.0,
   "test": {
-    "model_mae": 1.7451,
-    "model_rmse": 2.0626,
-    "persistence_mae": 2.0378,
-    "persistence_rmse": 2.5744,
+    "model_mae": 1.7517,
+    "model_rmse": 2.0714,
+    "persistence_mae": 2.066,
+    "persistence_rmse": 2.59,
     "model_no_worse_than_persistence": true
   },
   "inference_ms": {
-    "p50": 0.004151836037635803,
-    "p95": 0.004502944648265839,
-    "feature_p95": 0.01343805342912674
+    "p50": 0.008143950253725052,
+    "p95": 0.00937609001994133,
+    "feature_p95": 0.022948021069169044
   },
   "features": [
     "q",
@@ -71,5 +71,304 @@
     "trend10",
     "arrivals30 (proxy)",
     "departures30 (proxy)"
-  ]
+  ],
+  "test_per_episode": [
+    {
+      "seed": 1024,
+      "windows": 270,
+      "model_mae": 1.2925,
+      "model_rmse": 1.4011,
+      "persistence_mae": 1.563,
+      "persistence_rmse": 2.1858,
+      "delta_mae": -0.2705
+    },
+    {
+      "seed": 1025,
+      "windows": 270,
+      "model_mae": 2.0939,
+      "model_rmse": 2.4592,
+      "persistence_mae": 1.9852,
+      "persistence_rmse": 2.5662,
+      "delta_mae": 0.1087
+    },
+    {
+      "seed": 1026,
+      "windows": 270,
+      "model_mae": 1.3911,
+      "model_rmse": 1.6345,
+      "persistence_mae": 2.0704,
+      "persistence_rmse": 2.3937,
+      "delta_mae": -0.6793
+    },
+    {
+      "seed": 1027,
+      "windows": 270,
+      "model_mae": 2.2857,
+      "model_rmse": 2.5423,
+      "persistence_mae": 2.637,
+      "persistence_rmse": 3.1399,
+      "delta_mae": -0.3513
+    },
+    {
+      "seed": 1028,
+      "windows": 270,
+      "model_mae": 2.0905,
+      "model_rmse": 2.4814,
+      "persistence_mae": 2.5407,
+      "persistence_rmse": 3.096,
+      "delta_mae": -0.4502
+    },
+    {
+      "seed": 1029,
+      "windows": 270,
+      "model_mae": 1.3565,
+      "model_rmse": 1.5622,
+      "persistence_mae": 1.6,
+      "persistence_rmse": 1.9264,
+      "delta_mae": -0.2435
+    }
+  ],
+  "test_uncertainty": {
+    "episodes": 6,
+    "model_mae_mean": 1.7517,
+    "persistence_mae_mean": 2.0661,
+    "delta_mae_mean": -0.3143,
+    "delta_mae_ci95": [
+      -0.4973,
+      -0.1109
+    ],
+    "episodes_model_better": 5,
+    "resampling": "whole episodes, 10000 bootstrap resamples, seed 0"
+  },
+  "holdout_extra_per_episode": [
+    {
+      "seed": 1030,
+      "windows": 270,
+      "model_mae": 1.6203,
+      "model_rmse": 1.8508,
+      "persistence_mae": 1.7667,
+      "persistence_rmse": 2.2002,
+      "delta_mae": -0.1464
+    },
+    {
+      "seed": 1031,
+      "windows": 270,
+      "model_mae": 2.0468,
+      "model_rmse": 2.43,
+      "persistence_mae": 2.1074,
+      "persistence_rmse": 2.8861,
+      "delta_mae": -0.0606
+    },
+    {
+      "seed": 1032,
+      "windows": 270,
+      "model_mae": 1.5919,
+      "model_rmse": 1.9463,
+      "persistence_mae": 1.9778,
+      "persistence_rmse": 2.327,
+      "delta_mae": -0.3859
+    },
+    {
+      "seed": 1033,
+      "windows": 270,
+      "model_mae": 1.6217,
+      "model_rmse": 1.8905,
+      "persistence_mae": 1.7148,
+      "persistence_rmse": 2.3688,
+      "delta_mae": -0.0931
+    },
+    {
+      "seed": 1034,
+      "windows": 270,
+      "model_mae": 1.1199,
+      "model_rmse": 1.4388,
+      "persistence_mae": 1.8037,
+      "persistence_rmse": 2.0772,
+      "delta_mae": -0.6838
+    },
+    {
+      "seed": 1035,
+      "windows": 270,
+      "model_mae": 1.2885,
+      "model_rmse": 1.5942,
+      "persistence_mae": 1.7963,
+      "persistence_rmse": 2.1577,
+      "delta_mae": -0.5078
+    },
+    {
+      "seed": 1036,
+      "windows": 270,
+      "model_mae": 1.6167,
+      "model_rmse": 2.036,
+      "persistence_mae": 2.2148,
+      "persistence_rmse": 2.54,
+      "delta_mae": -0.5981
+    },
+    {
+      "seed": 1037,
+      "windows": 270,
+      "model_mae": 2.4516,
+      "model_rmse": 2.8923,
+      "persistence_mae": 1.7815,
+      "persistence_rmse": 2.255,
+      "delta_mae": 0.6701
+    },
+    {
+      "seed": 1038,
+      "windows": 270,
+      "model_mae": 1.6508,
+      "model_rmse": 1.9773,
+      "persistence_mae": 1.0963,
+      "persistence_rmse": 1.3389,
+      "delta_mae": 0.5545
+    },
+    {
+      "seed": 1039,
+      "windows": 270,
+      "model_mae": 1.939,
+      "model_rmse": 2.3092,
+      "persistence_mae": 2.2222,
+      "persistence_rmse": 2.5849,
+      "delta_mae": -0.2832
+    },
+    {
+      "seed": 1040,
+      "windows": 270,
+      "model_mae": 1.3232,
+      "model_rmse": 1.6185,
+      "persistence_mae": 1.6296,
+      "persistence_rmse": 2.2094,
+      "delta_mae": -0.3064
+    },
+    {
+      "seed": 1041,
+      "windows": 270,
+      "model_mae": 1.9435,
+      "model_rmse": 2.408,
+      "persistence_mae": 2.4111,
+      "persistence_rmse": 3.0653,
+      "delta_mae": -0.4676
+    },
+    {
+      "seed": 1042,
+      "windows": 270,
+      "model_mae": 1.7727,
+      "model_rmse": 2.2471,
+      "persistence_mae": 2.2963,
+      "persistence_rmse": 2.814,
+      "delta_mae": -0.5236
+    },
+    {
+      "seed": 1043,
+      "windows": 270,
+      "model_mae": 1.7957,
+      "model_rmse": 2.1103,
+      "persistence_mae": 2.2222,
+      "persistence_rmse": 2.5719,
+      "delta_mae": -0.4265
+    },
+    {
+      "seed": 1044,
+      "windows": 270,
+      "model_mae": 1.6174,
+      "model_rmse": 1.8517,
+      "persistence_mae": 1.4222,
+      "persistence_rmse": 1.7743,
+      "delta_mae": 0.1952
+    },
+    {
+      "seed": 1045,
+      "windows": 270,
+      "model_mae": 1.5833,
+      "model_rmse": 1.7952,
+      "persistence_mae": 1.3926,
+      "persistence_rmse": 1.911,
+      "delta_mae": 0.1907
+    },
+    {
+      "seed": 1046,
+      "windows": 270,
+      "model_mae": 1.5186,
+      "model_rmse": 1.7312,
+      "persistence_mae": 1.6296,
+      "persistence_rmse": 2.2443,
+      "delta_mae": -0.111
+    },
+    {
+      "seed": 1047,
+      "windows": 270,
+      "model_mae": 1.7424,
+      "model_rmse": 2.3253,
+      "persistence_mae": 1.6778,
+      "persistence_rmse": 2.2253,
+      "delta_mae": 0.0646
+    },
+    {
+      "seed": 1048,
+      "windows": 270,
+      "model_mae": 1.6924,
+      "model_rmse": 2.2771,
+      "persistence_mae": 2.3556,
+      "persistence_rmse": 3.2203,
+      "delta_mae": -0.6632
+    },
+    {
+      "seed": 1049,
+      "windows": 270,
+      "model_mae": 1.8741,
+      "model_rmse": 2.2609,
+      "persistence_mae": 2.1852,
+      "persistence_rmse": 2.5777,
+      "delta_mae": -0.3111
+    },
+    {
+      "seed": 1050,
+      "windows": 270,
+      "model_mae": 1.5207,
+      "model_rmse": 1.7864,
+      "persistence_mae": 2.0037,
+      "persistence_rmse": 2.3797,
+      "delta_mae": -0.483
+    },
+    {
+      "seed": 1051,
+      "windows": 270,
+      "model_mae": 1.6615,
+      "model_rmse": 2.0086,
+      "persistence_mae": 1.8,
+      "persistence_rmse": 2.0385,
+      "delta_mae": -0.1385
+    },
+    {
+      "seed": 1052,
+      "windows": 270,
+      "model_mae": 1.4973,
+      "model_rmse": 1.751,
+      "persistence_mae": 1.7556,
+      "persistence_rmse": 2.246,
+      "delta_mae": -0.2583
+    },
+    {
+      "seed": 1053,
+      "windows": 270,
+      "model_mae": 2.0143,
+      "model_rmse": 2.3775,
+      "persistence_mae": 2.3815,
+      "persistence_rmse": 3.0043,
+      "delta_mae": -0.3672
+    }
+  ],
+  "holdout_uncertainty": {
+    "episodes": 30,
+    "model_mae_mean": 1.7005,
+    "persistence_mae_mean": 1.9347,
+    "delta_mae_mean": -0.2342,
+    "delta_mae_ci95": [
+      -0.3475,
+      -0.1127
+    ],
+    "episodes_model_better": 24,
+    "resampling": "whole episodes, 10000 bootstrap resamples, seed 0"
+  },
+  "note": "Windows of one episode overlap and are not independent trials: use the per-episode rows and the episode-level bootstrap interval for uncertainty. Windows start after the 60 s contiguous warm-up required online."
 }
