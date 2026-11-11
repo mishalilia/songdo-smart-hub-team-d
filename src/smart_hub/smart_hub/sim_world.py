@@ -14,9 +14,9 @@ from smart_hub import hub_map
 from smart_hub.iot_devices import Barrier, Door, Led, Sensor
 
 STEP_SEC = 0.05
-ROBOT_RADIUS = 0.20
-VEHICLE_RADIUS = 0.30
-PEDESTRIAN_RADIUS = 0.20
+ROBOT_RADIUS = hub_map.FOOTPRINT_RADIUS_M['robot']
+VEHICLE_RADIUS = hub_map.FOOTPRINT_RADIUS_M['bus']       # bus and background cars
+PEDESTRIAN_RADIUS = hub_map.FOOTPRINT_RADIUS_M['pedestrian']
 COMMAND_TIMEOUT_SEC = 0.5
 SWEEP_STEP_M = 0.05
 EDGE_CORRIDOR_M = 0.5
@@ -724,9 +724,7 @@ def footprint_in_c(agent, margin=0.0):
     return _footprint_in_c(agent.x, agent.y, agent.radius + margin)
 
 
-def _footprint_in_c(x, y, radius):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - radius <= x <= xmax + radius and ymin - radius <= y <= ymax + radius
+_footprint_in_c = hub_map.footprint_in_crossing
 
 
 def apply_variant(scenario, variant):

@@ -15,7 +15,7 @@ from smart_hub import hub_map
 _LATENCY = re.compile(r'latency_ms=([0-9.]+)')
 _WAIT = re.compile(r'wait_sec=([0-9.]+)')
 
-AGENT_RADIUS = {'robot': 0.20, 'bus': 0.30, 'car': 0.30}
+AGENT_RADIUS = {k: hub_map.FOOTPRINT_RADIUS_M[k] for k in ('robot', 'bus', 'car')}
 CONTROLLED = ('robot', 'bus')
 STOPPED_MPS = 0.02
 PAIR_CLASSES = ('controlled_controlled', 'controlled_car', 'controlled_pedestrian',
@@ -58,9 +58,7 @@ def parse_wait_sec(reason):
     return float(m.group(1)) if m else None
 
 
-def in_crossing(x, y, radius=0.0):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - radius < x < xmax + radius and ymin - radius < y < ymax + radius
+in_crossing = hub_map.footprint_in_crossing     # same test as the nodes under evaluation
 
 
 def crossing_occupants(agents, pedestrians):

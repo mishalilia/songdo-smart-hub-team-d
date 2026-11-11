@@ -32,12 +32,8 @@ from smart_hub_interfaces.msg import (
 from smart_hub_interfaces.srv import RequestCrossing
 
 STALE_SEC = 1.0
-AGENT_RADIUS = {'robot': 0.20, 'bus': 0.30, 'car': 0.30}
-
-
-def footprint_in_c(x, y, radius):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - radius <= x <= xmax + radius and ymin - radius <= y <= ymax + radius
+AGENT_RADIUS = {k: hub_map.FOOTPRINT_RADIUS_M[k] for k in ('robot', 'bus', 'car')}
+footprint_in_c = hub_map.footprint_in_crossing      # one geometry for every node
 
 
 class HubCoordinator(Node):

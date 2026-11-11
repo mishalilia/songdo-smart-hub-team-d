@@ -40,15 +40,13 @@ from smart_hub_interfaces.srv import ClearSafetyStop
 from std_msgs.msg import Bool
 
 AGENTS = {'robot': 'robot1', 'bus': 'bus1'}
-RADIUS = {'robot': 0.20, 'bus': 0.30, 'car': 0.30, 'obstacle': 0.35, 'pedestrian': 0.20}
+RADIUS = hub_map.FOOTPRINT_RADIUS_M
 STOPPED_MPS = 0.02
 STATE_STALE_SEC = 1.0
 SWEEP_STEP_M = 0.02
 
 
-def footprint_in_c(x, y, radius):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - radius <= x <= xmax + radius and ymin - radius <= y <= ymax + radius
+footprint_in_c = hub_map.footprint_in_crossing      # one geometry for every node
 
 
 def arc_point(x, y, yaw, v, w, t):
