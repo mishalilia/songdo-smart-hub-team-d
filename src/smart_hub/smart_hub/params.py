@@ -38,6 +38,7 @@ RANGES = {
     'command_timeout_sec': (0.05, 2.0),
     'pose_timeout_sec': (0.1, 5.0),
     'clearance_m': (0.0, 2.0),
+    'lateral_clearance_m': (0.0, 1.0),
     'reaction_time_sec': (0.0, 2.0),
     'min_deceleration_mps2': (0.05, 10.0),
     'arrival_tolerance_m': (0.01, 1.0),

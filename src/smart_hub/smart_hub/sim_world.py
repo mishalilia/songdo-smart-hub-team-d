@@ -125,6 +125,7 @@ class World:
         self.camera = Sensor('camera', 'camera')
         self._door_was_open = False
         self.crossing_owner = ''    # from /crossing/state: background cars yield to it
+        self.crossing_unknown = False   # crossing state stale / invalid: nobody may enter
         self.crossing_lock = False  # scripted bus / robot use the crossing lock (scenario_runner)
         self.crossing_wanted = set()  # scripted agents waiting at the edge of C for a grant
         self.entrance = []          # cars waiting at the parking barrier: [client, since]
@@ -560,7 +561,7 @@ class World:
             return
         self.crossing_wanted.discard(a.agent_id)
         # Background cars obey the crossing: no entry into C while someone owns it.
-        if a.kind == 'car' and self.crossing_owner and \
+        if a.kind == 'car' and (self.crossing_owner or self.crossing_unknown) and \
                 _footprint_in_c(nx, ny, a.radius) and not _footprint_in_c(a.x, a.y, a.radius):
             a.v = 0.0
             return

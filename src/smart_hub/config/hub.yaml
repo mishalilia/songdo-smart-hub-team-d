@@ -60,6 +60,7 @@ safety_supervisor:
     max_angular_rad_s: 0.8
     pose_timeout_sec: 1.0
     clearance_m: 0.20
+    lateral_clearance_m: 0.05
     reaction_time_sec: 0.10
     min_deceleration_mps2: 0.5
 
