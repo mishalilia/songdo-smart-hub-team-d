@@ -51,6 +51,7 @@ ATTEMPT_FIELDS = ['harness_version', 'matrix_id', 'attempt_id', 'attempt', 'comm
                   'scenario', 'variant', 'seed', 'mode', 'run_id', 'passed', 'failure_class',
                   'superseded_by', 'details']
 STARTUP_SEC = 8.0          # launch -> scenario clock start (services up)
+POST_KILL_SEC = 8.0        # observation window kept after a process kill
 STANDSTILL_MS = 1000.0     # supervised stop input -> pose observed at standstill
 PEDESTRIAN_RESPONSE_MS = 1000.0     # pedestrian enters C -> robot / bus inside at standstill
 ROUTE_STOP_MS = 500.0      # REROUTE / NO_ROUTE event -> measured ground-truth standstill
@@ -839,6 +840,15 @@ def run_case(case, index, opts, lock):
                 first_attempt='pass' if first_row['passed'] else first_row['failure_class'])
 
 
+def run_end(start, duration, kill_wall=None):
+    """Return the wall time at which a run is stopped."""
+    # A kill is timed from an event of the run, the end from the launch; when start-up is
+    # slow the kill would land next to the end. The run therefore always stays up for
+    # POST_KILL_SEC after a kill, so the reaction to it can be recorded.
+    end = start + STARTUP_SEC + duration
+    return end if kill_wall is None else max(end, kill_wall + POST_KILL_SEC)
+
+
 def _run_case(case, index, opts, lock, attempt):
     domain = opts.domain_base + index % 60           # valid ROS_DOMAIN_ID range is 0..101
     tag = 'm%05d' % (opts.tag_base + index) + 'r' * (attempt - 1)
@@ -855,18 +865,20 @@ def _run_case(case, index, opts, lock, attempt):
     log = open(os.path.join(opts.out, 'logs', '%03d_%s.log' % (index, label)), 'w')
     proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT,
                             start_new_session=True)
-    killed, kill_wall = True, None
+    killed, kill_wall, trigger_t = True, None, 0.0
     if case['kill']:
         (event, entity, reason_has, delay), pattern = case['kill']
-        wait_for_event(opts.runs_dir, label, case['seed'], start, event, entity,
-                       reason_has, 60)
-        time.sleep(delay)
-        pids = subprocess.run(['pgrep', '-g', str(proc.pid), '-f', 'lib/smart_hub/' + pattern],
-                              capture_output=True, text=True).stdout.split()
-        for pid in pids:
-            os.kill(int(pid), signal.SIGKILL)
-        kill_wall, killed = time.time(), bool(pids)
-    time.sleep(max(0.0, start + STARTUP_SEC + case['duration'] - time.time()))
+        trigger_t = wait_for_event(opts.runs_dir, label, case['seed'], start, event, entity,
+                                   reason_has, 60)
+        if trigger_t is not None:
+            time.sleep(delay)
+            pids = subprocess.run(['pgrep', '-g', str(proc.pid), '-f',
+                                   'lib/smart_hub/' + pattern],
+                                  capture_output=True, text=True).stdout.split()
+            for pid in pids:
+                os.kill(int(pid), signal.SIGKILL)
+            kill_wall, killed = time.time(), bool(pids)
+    time.sleep(max(0.0, run_end(start, case['duration'], kill_wall) - time.time()))
     os.killpg(proc.pid, signal.SIGINT)
     try:
         proc.wait(timeout=20)
@@ -883,6 +895,9 @@ def _run_case(case, index, opts, lock, attempt):
     missing = started['reason'].split('missing=')[-1] if started else 'all nodes'
     if missing:
         return dict(row, details='startup gate incomplete, missing=%s' % missing)
+    if trigger_t is None:
+        return dict(row, failure_class='application',
+                    details='kill trigger %s not observed in 60 s' % case['kill'][0][0])
     if not killed:
         return dict(row, details='no %s process to kill' % case['kill'][1])
     time.sleep(1.0)                       # let metrics_logger write its final summary

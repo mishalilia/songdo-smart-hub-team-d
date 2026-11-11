@@ -70,6 +70,15 @@ def test_on_change_topics_have_no_maximum_rate():
                                        '/robot/odom at 26.00 Hz, nominal 20 Hz']
 
 
+def test_run_stays_up_for_the_observation_window_after_a_late_kill():
+    nominal = 100.0 + test_matrix.STARTUP_SEC + 17.0
+    assert test_matrix.run_end(100.0, 17.0) == nominal
+    assert test_matrix.run_end(100.0, 17.0, kill_wall=110.0) == nominal
+    # slow start-up: the kill lands one second before the nominal end
+    assert test_matrix.run_end(100.0, 17.0, kill_wall=nominal - 1.0) == \
+        nominal - 1.0 + test_matrix.POST_KILL_SEC
+
+
 def test_standstill_reads_latency_and_observer_delay():
     ev = [{'t': 10.0, 'entity_id': 'robot1', 'event': 'STANDSTILL_MEASURED',
            'reason': 'cause=ESTOP latency_ms=412.50 zero_cmd_ms=3.10 observer_delay_ms=1.25'}]
