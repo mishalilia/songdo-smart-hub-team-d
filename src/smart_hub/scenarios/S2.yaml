@@ -1,9 +1,11 @@
-# S2 — AI demand prediction (assignment 9). Owner: M2 (dispatch: M3)
+# Author: Hsu Shwe Sin Htun (12240198)
+# S2 — AI demand prediction (assignment 9).
 # Rising-demand episode with a feed gap after warm-up. Training episodes: run
 # sim_world.World offline with different seeds / arrival rates (no ROS needed).
 scenario_id: S2
 duration_sec: 360
 events:
+  - {t: 1.0,   type: clear_stop_request}         # startup latch -> ready (16.3)
   - {t: 0.0,   type: arrival_rate, per_min: 2.0}
   - {t: 90.0,  type: arrival_rate, per_min: 6.0}
   - {t: 120.0, type: freeze_camera, duration_sec: 5.0}

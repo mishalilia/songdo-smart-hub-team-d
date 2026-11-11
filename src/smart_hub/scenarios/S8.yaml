@@ -1,4 +1,5 @@
-# S8 — integrated smart hub coordination (assignment 15.1). Owner: M3 (+ all)
+# Author: Komronbek Tohirov (12235649)
+# S8 — integrated smart hub coordination (assignment 15.1).
 scenario_id: S8
 duration_sec: 300
 initial_slots: {P1: OCCUPIED, P2: FREE, P3: FREE}
