@@ -2,16 +2,30 @@
 """
 metrics_logger.
 
-Records every run (assignment 21.2): run ID, scenario, seed, parameters; all /hub/events;
+Records every run (assignment 21.2): run ID, scenario, seed, parameters and provenance
+(commit, file hashes, ROS distribution, RMW, machine, evaluator revision); all /hub/events;
 latency samples (event `latency_ms=` fields, e.g. stop latch, crossing grant, route
 compute, service round trips); data age on key topics (receipt time - observation stamp,
-i.e. end-to-end sensor latency) and topic rates; energy per device; collisions, crossing
-conflicts from private ground truth, safety interventions and mission outcomes.
-Writes <output_dir>/<run_id>/{events,latency,energy}.csv and summary.json, and publishes a
-1 Hz summary on /hub/metrics for the dashboard.
+i.e. end-to-end sensor latency) and topic rates; energy per device; collisions, safety
+interventions and mission outcomes.
+
+Crossing C is evaluated from private ground truth with no grace interval
+(metrics.CrossingMonitor): strict occupancy, unauthorized entry, token overlap, pedestrian
+response latency and contact are separate measures, and every change of the occupant set
+is kept in crossing_occupancy.csv. Passenger waits cover everyone who entered the queue
+(metrics.QueueLedger): boarded, abandoned and still waiting at run end (right-censored).
+
+Clock domains: event times and data ages use ROS header stamps (one host, one clock);
+`latency_ms=` fields are monotonic intervals measured inside the emitting node; ground
+truth is sampled at the simulator's truth rate (10 Hz), which bounds the resolution of
+occupancy seconds and of the pedestrian response latency to 100 ms.
+
+Writes <output_dir>/<run_id>/{events,latency,energy,crossing_occupancy}.csv and
+summary.json, and publishes a 1 Hz summary on /hub/metrics for the dashboard.
 """
 from collections import Counter, deque
 import csv
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -29,9 +43,11 @@ from rclpy.node import Node
 from rclpy.parameter import parameter_value_to_python
 from rclpy.time import Time
 from sensor_msgs.msg import Image
+from smart_hub.freshness import Retained
 from smart_hub.hub_events import ack_reset
 from smart_hub.metrics import (
-    crossing_conflict, parse_latency_ms, parse_wait_sec, Series,
+    CrossingMonitor, parse_latency_ms, parse_wait_sec, QueueLedger,
+    relaxed_crossing_conflict, Series,
 )
 from smart_hub.params import check_parameters
 from smart_hub.qos import R10, R100, R1T, SENSOR
@@ -53,27 +69,84 @@ AGE_TOPICS = [
     ('/camera/image_raw', Image, SENSOR),
 ]
 RATE_WINDOW_SEC = 5.0
-CONFLICT_REACTION_SEC = 1.0
+CROSSING_STALE_SEC = 1.0
+RELAXED_REACTION_SEC = 1.0      # midterm diagnostic only, not used by any reported measure
+EVALUATOR = 'metrics_logger r2: strict crossing occupancy, censored waits, provenance'
+HASHED_FILES = ('config/hub.yaml', 'config/map.yaml', 'models/demand_ridge.json')
+
+
+def _git(args, cwd):
+    try:
+        return subprocess.run(['git'] + args, capture_output=True, text=True, timeout=2,
+                              cwd=cwd).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def source_revision():
+    """
+    Return (full commit hash, dirty flag) of the code under test.
+
+    SMART_HUB_COMMIT (set by the test matrix, or by hand for an installed copy without a
+    git checkout) wins; otherwise the working directory and then the source tree behind a
+    symlink install are asked.
+    """
+    commit = os.environ.get('SMART_HUB_COMMIT', '')
+    if commit:
+        return commit, os.environ.get('SMART_HUB_DIRTY', '') == '1'
+    for cwd in (os.getcwd(), os.path.dirname(os.path.realpath(__file__))):
+        commit = _git(['rev-parse', 'HEAD'], cwd)
+        if commit:
+            return commit, bool(_git(['status', '--porcelain', '--untracked-files=no'], cwd))
+    return 'unknown', False
+
+
+def file_sha256(path):
+    try:
+        with open(path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return 'unknown'
+
+
+def share_dir():
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return get_package_share_directory('smart_hub')
+    except Exception:
+        return ''
+
+
+def _proc_field(path, key):
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.startswith(key):
+                    return line.split(':', 1)[1].strip()
+    except OSError:
+        pass
+    return ''
 
 
 def run_metadata():
-    """Commit hash, configuration hash and machine for the run record (21.2)."""
+    """Provenance of the run record (21.2): code, configuration, middleware, machine."""
+    commit, dirty = source_revision()
+    share = share_dir()
+    hashes = {rel: file_sha256(os.path.join(share, rel)) for rel in HASHED_FILES}
     try:
-        commit = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True,
-                                text=True, timeout=2).stdout.strip() or 'unknown'
-    except (OSError, subprocess.SubprocessError):
-        commit = 'unknown'
-    config_hash = 'unknown'
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        path = os.path.join(get_package_share_directory('smart_hub'), 'config', 'hub.yaml')
-        with open(path, 'rb') as f:
-            config_hash = hashlib.sha256(f.read()).hexdigest()[:12]
+        rmw = rclpy.get_rmw_implementation_identifier()
     except Exception:
-        pass
-    return {'commit': commit, 'config_sha256': config_hash,
+        rmw = 'unknown'
+    ram_kb = _proc_field('/proc/meminfo', 'MemTotal').split(' ')[0]
+    return {'commit': commit, 'commit_dirty': dirty,
+            'config_sha256': hashes['config/hub.yaml'], 'files_sha256': hashes,
+            'evaluator': EVALUATOR,
+            'ros_distro': os.environ.get('ROS_DISTRO', 'unknown'), 'rmw': rmw,
             'machine': '%s %s, %d CPU' % (platform.system(), platform.machine(),
                                           os.cpu_count() or 0),
+            'os': platform.platform(),
+            'cpu_model': _proc_field('/proc/cpuinfo', 'model name') or 'unknown',
+            'ram_gb': round(int(ram_kb) / 1048576.0, 1) if ram_kb.isdigit() else None,
             'python': platform.python_version()}
 
 
@@ -111,10 +184,17 @@ class MetricsLogger(Node):
         self.receipts = {}
         self.counts = Counter()
         self.energy = {}
-        self.waits = Series()
+        self.started_utc = datetime.now(timezone.utc).isoformat(timespec='seconds')
+        self.scenario_sha256 = file_sha256(os.path.join(
+            share_dir(), 'scenarios', '%s.yaml' % scenario_id)) if scenario_id else ''
+        self.passengers = QueueLedger()
         self.mission_time = Series()
         self.goal_started = {}
         self.truth_agents, self.truth_peds = [], []
+        self.truth_stamp = {}
+        self.crossing = CrossingMonitor()
+        self.crossing_state = Retained(CROSSING_STALE_SEC)
+        self.relaxed_conflicts = 0
         self.in_conflict = False
         self.conflict_since = None
         self.files = {}
@@ -125,6 +205,8 @@ class MetricsLogger(Node):
             for name, header in (
                     ('events', ['t_sec', 'entity_id', 'event', 'reason', 'correlation_id']),
                     ('latency', ['t_sec', 'metric', 'value_ms']),
+                    ('crossing_occupancy', ['t_sec', 'agents_in_c', 'pedestrians_in_c',
+                                            'owner', 'token', 'occupancy_classes']),
                     ('energy', ['t_sec', 'device', 'power_w', 'energy_j'])):
                 f = open(os.path.join(run_dir, name + '.csv'), 'w', newline='')
                 writer = csv.writer(f)
@@ -210,10 +292,17 @@ class MetricsLogger(Node):
             key = msg.event
             self.latency.setdefault(key, Series()).add(latency)
             self.row('latency', ['%.3f' % self.t(msg.header.stamp), key, '%.3f' % latency])
-        if msg.event == 'BOARDED':
-            wait = parse_wait_sec(msg.reason)
-            if wait is not None:
-                self.waits.add(wait)
+        t = self.t(msg.header.stamp)
+        if msg.event == 'QUEUE_ENTERED':
+            self.passengers.enter(msg.entity_id, t)
+        elif msg.event == 'BOARDED':
+            self.passengers.board(msg.entity_id, t, parse_wait_sec(msg.reason))
+        elif msg.event == 'LEFT_QUEUE':
+            self.passengers.abandon(msg.entity_id, t)
+        elif msg.event == 'QUEUE_BALKED':
+            self.passengers.balked += 1
+        elif msg.event in ('CROSSING_GRANTED', 'CROSSING_RELEASED', 'CROSSING_FREE'):
+            self.crossing.on_event(msg.event, msg.correlation_id)
         if msg.event == 'GOAL_ACCEPTED':
             self.goal_started[msg.correlation_id] = time.monotonic()
         elif msg.event in ('GOAL_SUCCEED', 'GOAL_ABORT', 'GOAL_CANCELED'):
@@ -225,6 +314,8 @@ class MetricsLogger(Node):
     def on_stamped(self, topic, msg):
         receipt = time.monotonic()
         stamp = msg.header.stamp
+        if topic == '/crossing/state':
+            self.crossing_state.put(msg, receipt)
         if stamp.sec or stamp.nanosec:
             age_ms = (self.get_clock().now() - Time.from_msg(stamp)).nanoseconds / 1e6
             self.age.setdefault(topic, Series(keep=2000)).add(age_ms)
@@ -243,28 +334,48 @@ class MetricsLogger(Node):
     def on_truth_v(self, msg):
         self.truth_agents = [(v.vehicle_id, v.kind, v.pose.x, v.pose.y, v.speed_mps)
                              for v in msg.vehicles]
-        self.check_conflict()
+        self.on_truth('vehicles', msg.header.stamp)
 
     def on_truth_p(self, msg):
         self.truth_peds = [(p.position.x, p.position.y) for p in msg.poses]
+        self.on_truth('pedestrians', msg.header.stamp)
 
-    def check_conflict(self):
-        # Two agents in C count at once; a pedestrian with a moving agent counts only if
-        # the agent has not stopped within CONFLICT_REACTION_SEC (the pedestrian may enter
-        # a granted crossing; the required response is a safe stop, 15.1 / S8).
+    def on_truth(self, source, stamp):
+        # Vehicles and pedestrians of one simulator step carry the same stamp; the
+        # crossing is sampled once both halves of that step have arrived.
+        self.truth_stamp[source] = (stamp.sec, stamp.nanosec)
+        if self.truth_stamp.get('vehicles') != self.truth_stamp.get('pedestrians'):
+            return
+        now = self.get_clock().now().nanoseconds / 1e9
+        state = self.crossing_state.get(now, time.monotonic())
+        t = self.t(stamp)
+        row, found = self.crossing.sample(
+            t, self.truth_agents, self.truth_peds,
+            None if state is None else state.owner_id, '' if state is None else state.token)
+        if row:
+            self.row('crossing_occupancy', row)
+        for event, entity, reason in found:
+            self.row('events', ['%.3f' % t, entity, event, reason, 'ground_truth'])
+            latency = parse_latency_ms(reason)
+            if latency is not None:
+                self.row('latency', ['%.3f' % t, event, '%.3f' % latency])
+        self.check_relaxed()
+
+    def check_relaxed(self):
+        # Midterm definition, kept as a diagnostic for comparison with the earlier record:
+        # car-only occupancy ignored and a pedestrian next to a robot / bus counted only if
+        # the agent is still moving RELAXED_REACTION_SEC later. Not a reported measure.
         now = time.monotonic()
-        two_agents = crossing_conflict(self.truth_agents, [])
-        with_ped = crossing_conflict(self.truth_agents, self.truth_peds)
+        two_agents = relaxed_crossing_conflict(self.truth_agents, [])
+        with_ped = relaxed_crossing_conflict(self.truth_agents, self.truth_peds)
         if with_ped and not two_agents:
             self.conflict_since = self.conflict_since or now
-            with_ped = now - self.conflict_since > CONFLICT_REACTION_SEC
+            with_ped = now - self.conflict_since > RELAXED_REACTION_SEC
         else:
             self.conflict_since = None
         conflict = two_agents or with_ped
         if conflict and not self.in_conflict:
-            self.counts['CROSSING_CONFLICT'] += 1
-            self.row('events', ['%.3f' % self.t(), 'metrics_logger', 'CROSSING_CONFLICT',
-                                'ground truth', ''])
+            self.relaxed_conflicts += 1
         self.in_conflict = conflict
 
     # ------------------------------------------------------------------ outputs
@@ -277,16 +388,26 @@ class MetricsLogger(Node):
 
     def summary(self):
         c = self.counts
+        crossing = self.crossing.summary()
+        crossing.update(contacts=c['COLLISION'],
+                        relaxed_conflicts_diagnostic=self.relaxed_conflicts)
+        queue = self.passengers.summary(
+            self.get_clock().now().nanoseconds / 1e9 - self.started_ros)
         return {
             'run_id': self.run_id, 'scenario_id': self.scenario_id, 'seed': self.seed,
-            'elapsed_sec': round(self.t(), 1), **self.metadata,
+            'elapsed_sec': round(self.t(), 1), 'started_utc': self.started_utc,
+            'written_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'scenario_sha256': self.scenario_sha256, **self.metadata,
             'latency_ms': {k: s.summary() for k, s in sorted(self.latency.items())},
             'topic_age_ms': {k: s.summary() for k, s in sorted(self.age.items())},
             'topic_rate_hz': {t: round(self.rate(t), 2) for t, _, _ in AGE_TOPICS},
             'energy': self.energy,
             'counts': {
                 'collisions': c['COLLISION'],
-                'crossing_conflicts': c['CROSSING_CONFLICT'],
+                'crossing_strict_occupancy': crossing['strict_occupancy']['episodes'],
+                'crossing_unauthorized_entries': sum(
+                    crossing['unauthorized_entries'].values()),
+                'crossing_token_overlaps': crossing['token_overlaps'],
                 'safety_interventions': c['SAFETY_INHIBIT'] + c['STOP_LATCHED'],
                 'goals_succeeded': c['GOAL_SUCCEED'],
                 'goals_aborted': c['GOAL_ABORT'],
@@ -296,7 +417,9 @@ class MetricsLogger(Node):
                 'crossing_grants': c['CROSSING_GRANTED'],
                 'boarded': c['BOARDED'],
             },
-            'queue_wait_sec': self.waits.summary(),
+            'crossing': crossing,
+            'queue': queue,
+            'queue_wait_sec': queue['wait_boarded_sec'],     # boarded passengers only
             'mission_time_sec': self.mission_time.summary(),
         }
 
@@ -320,8 +443,22 @@ class MetricsLogger(Node):
             msg.status.append(s)
 
         status('run', {k: data[k] for k in ('run_id', 'scenario_id', 'seed', 'elapsed_sec',
-                                            'commit', 'config_sha256', 'machine')})
+                                            'commit', 'config_sha256', 'machine',
+                                            'ros_distro', 'rmw')})
         status('counts', data['counts'])
+        crossing, queue = data['crossing'], data['queue']
+        status('crossing', dict(
+            {'strict_' + k: v['episodes']
+             for k, v in crossing['strict_occupancy']['by_class'].items()},
+            strict_seconds=crossing['strict_occupancy']['seconds'],
+            **{'entry_' + k: v for k, v in crossing['unauthorized_entries'].items()},
+            pedestrian_response_p95_ms=crossing['pedestrian_response_ms'].get('p95', ''),
+            pedestrian_response_unresolved=crossing['pedestrian_response_unresolved']))
+        status('queue', {k: ('' if queue[k] is None else queue[k]) for k in (
+            'arrived', 'boarded', 'abandoned', 'waiting_at_end', 'balked',
+            'completion_rate', 'clearance_rate')})
+        status('queue_wait_censored_sec', queue['wait_censored_sec'])
+        status('queue_wait_all_sec', queue['wait_all_lower_bound_sec'])
         for k, v in data['latency_ms'].items():
             status('latency/' + k, v)
         for k, v in data['topic_age_ms'].items():

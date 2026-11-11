@@ -247,6 +247,10 @@ class World:
         self._ped_counter += 1
         pid = 'ped%03d' % self._ped_counter
         self.peds[pid] = Pedestrian(pid, x, y, zone, self.t, leave_at)
+        if zone == 'Q':
+            # Every passenger is logged on entry, so waits can be reported for all of them
+            # (boarded, abandoned, still waiting at run end), not only for those who board.
+            self._emit(pid, 'QUEUE_ENTERED', 'x=%.2f y=%.2f' % (x, y))
         return pid
 
     def _random_queue_point(self):
@@ -490,6 +494,8 @@ class World:
             spot = self._random_queue_point()
             if spot is not None:
                 self._new_ped('Q', *spot)
+            else:
+                self._emit('passenger', 'QUEUE_BALKED', 'queue zone full')
 
     def _expire_pedestrians(self):
         for pid in [k for k, p in self.peds.items() if p.leave_at <= self.t]:

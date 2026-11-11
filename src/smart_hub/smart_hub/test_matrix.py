@@ -26,6 +26,7 @@ import time
 from smart_hub.metrics import parse_latency_ms, percentile
 
 STARTUP_SEC = 8.0          # launch -> scenario clock start (services up)
+PEDESTRIAN_RESPONSE_MS = 1000.0     # pedestrian enters C -> robot / bus inside at standstill
 
 
 # ---------------------------------------------------------------- run helpers
@@ -56,9 +57,46 @@ def number(text, key):
     return float(m.group(1)) if m else None
 
 
+def safety_problems(summary):
+    """
+    Return the violated safety measures of a run (empty list: none).
+
+    Contact, token overlap, a second robot / bus or a car together with a robot / bus in C,
+    and entry of a robot / bus without the grant or onto a pedestrian must all be zero.
+    A pedestrian may step into a granted crossing (pedestrians have priority), so that
+    occupancy is reported as it is and the criterion is the response: every robot / bus
+    inside C measured at standstill within PEDESTRIAN_RESPONSE_MS. Car-only occupancy is
+    uncontrolled background traffic: recorded, not a criterion.
+    """
+    x = summary['crossing']
+    by_class = x['strict_occupancy']['by_class']
+    response = x['pedestrian_response_ms']
+    measures = {
+        'contact': summary['counts']['collisions'],
+        'token_overlap': x['token_overlaps'],
+        'robot/bus+robot/bus in C': by_class['controlled_controlled']['episodes'],
+        'robot/bus+car in C': by_class['controlled_car']['episodes'],
+        'entry without grant': x['unauthorized_entries']['no_grant'],
+        'entry onto pedestrian': x['unauthorized_entries']['pedestrian_present'],
+        'pedestrian response unresolved': x['pedestrian_response_unresolved'],
+        'pedestrian response > %d ms' % PEDESTRIAN_RESPONSE_MS:
+            int(response.get('max', 0.0) > PEDESTRIAN_RESPONSE_MS),
+    }
+    return ['%s=%d' % (k, v) for k, v in measures.items() if v]
+
+
 def safety_ok(summary):
-    c = summary['counts']
-    return c['collisions'] == 0 and c['crossing_conflicts'] == 0
+    return not safety_problems(summary)
+
+
+def crossing_text(summary):
+    x = summary['crossing']
+    by_class = x['strict_occupancy']['by_class']
+    return 'strict occupancy %d (robot/bus+ped %d, car-only %d), unauthorized %d, ' \
+        'token overlap %d' % (
+            x['strict_occupancy']['episodes'], by_class['controlled_pedestrian']['episodes'],
+            by_class['car_car']['episodes'] + by_class['car_pedestrian']['episodes'],
+            sum(x['unauthorized_entries'].values()), x['token_overlaps'])
 
 
 # ---------------------------------------------------------------- checks
@@ -281,8 +319,8 @@ def check_s8(ev, summary):
     wait = summary['queue_wait_sec']
     ok = safety_ok(summary) and overlaps == 0 and len(slots) == len(set(slots)) and \
         bool(first(ev, 'GOAL_SUCCEED', 'robot1'))
-    return ok, 'collisions %d, conflicts %d, overlapping dispatch %d, queue wait mean %s s' % (
-        summary['counts']['collisions'], summary['counts']['crossing_conflicts'], overlaps,
+    return ok, 'collisions %d, %s, overlapping dispatch %d, queue wait mean %s s' % (
+        summary['counts']['collisions'], crossing_text(summary), overlaps,
         '%.1f' % wait['mean'] if wait.get('n') else '-'), {
         'queue_wait_mean_s': wait.get('mean'), 'boarded': summary['counts']['boarded']}
 
