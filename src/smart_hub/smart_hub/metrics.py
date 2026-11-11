@@ -275,6 +275,55 @@ class QueueLedger:
         }
 
 
+class StopMonitor:
+    """
+    Ground-truth evidence that a manager stops when its route becomes invalid (13.2-13.3).
+
+    demand(agent, cause, t) is called for a REROUTE or NO_ROUTE event; the stop latency
+    is the time from that event stamp to the first later truth sample at standstill.
+    After a NO_ROUTE stop the agent is held: any later moving sample, until release(),
+    is a MOTION_WITHOUT_ROUTE finding.
+    """
+
+    def __init__(self):
+        self.pending = {}                # agent -> (t, cause)
+        self.held = {}                   # agent -> truth samples seen at standstill
+        self.latency = Series()
+        self.motion_without_route = 0
+
+    def demand(self, agent, cause, t):
+        self.pending.setdefault(agent, (t, cause))
+
+    def release(self, agent):
+        self.held.pop(agent, None)
+
+    def sample(self, t, agents):
+        """Feed one truth sample; return [(event, entity_id, reason)] findings."""
+        found = []
+        for agent, _, _, _, speed in agents:
+            stopped = abs(speed) <= STOPPED_MPS
+            if agent in self.held:
+                if stopped:
+                    self.held[agent] += 1
+                else:
+                    self.motion_without_route += 1
+                    found.append(('MOTION_WITHOUT_ROUTE', agent, 'speed=%.3f' % speed))
+            since, cause = self.pending.get(agent, (None, ''))
+            if since is not None and stopped and t >= since:
+                del self.pending[agent]
+                self.latency.add((t - since) * 1000.0)
+                found.append(('ROUTE_STOP_MEASURED', agent, 'cause=%s latency_ms=%.0f' % (
+                    cause, (t - since) * 1000.0)))
+                if cause == 'NO_ROUTE':
+                    self.held.setdefault(agent, 0)
+        return found
+
+    def summary(self):
+        return {'latency_ms': self.latency.summary(), 'unresolved': len(self.pending),
+                'held_samples': dict(self.held),
+                'motion_without_route': self.motion_without_route}
+
+
 def relaxed_crossing_conflict(agents, pedestrians):
     """
     Return True under the midterm definition, kept only as a labelled diagnostic.

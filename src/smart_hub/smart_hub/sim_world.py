@@ -44,7 +44,7 @@ ENERGY_MODEL = {
 # Event types that the ROS node executes as service / action calls (test driver).
 DRIVER_EVENTS = {
     'reserve', 'release', 'dock_request', 'escort_request', 'confirm_ready',
-    'clear_stop_request', 'cancel_goal',
+    'clear_stop_request', 'cancel_goal', 'route_request',
 }
 
 

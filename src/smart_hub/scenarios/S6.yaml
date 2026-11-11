@@ -1,10 +1,24 @@
 # Author: Vladislav Li (12250245)
 # S6 — intelligent route replanning (assignment 13.3).
+# route_request calls /route/compute on the live graph; the reply (path, cost, reason,
+# latency) is logged as ROUTE_REPLY and checked by the test matrix. The robot escort
+# gives the double blockage an active route to invalidate: the manager must stop and
+# fail with NO_ROUTE.
 scenario_id: S6
 duration_sec: 90
+robot: {start_node: R}
 events:
+  - {t: 1.0,  type: clear_stop_request}            # startup latch -> ready (16.3)
+  - {t: 5.0,  type: route_request, label: baseline, start: A, goal: E, agent: car}
   - {t: 10.0, type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}   # blocks Cs-J
+  - {t: 14.0, type: route_request, label: detour, start: A, goal: E, agent: car}
   - {t: 30.0, type: remove_obstacle, id: O}
   - {t: 30.0, type: spawn_slow_vehicles, edge: Cs-J, count: 3, speed_mps: 0.10} # raise density
+  - {t: 38.0, type: route_request, label: congested, start: A, goal: E, agent: car}
+  - {t: 44.0, type: escort_request, request_id: s6-01, passenger_id: P01,
+     pickup: R, destination: D, max_duration_sec: 120.0}
+  - {t: 46.0, type: confirm_ready}
   - {t: 50.0, type: block_edges, edges: [Cs-J, B-Cn]}                          # NO_ROUTE A->E
+  - {t: 54.0, type: route_request, label: no_route, start: A, goal: E, agent: car}
   - {t: 70.0, type: restore_all}
+  - {t: 76.0, type: route_request, label: restored, start: A, goal: E, agent: car}

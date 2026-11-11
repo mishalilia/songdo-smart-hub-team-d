@@ -16,6 +16,7 @@ import csv
 import glob
 import inspect
 import json
+import math
 import os
 import re
 import signal
@@ -23,10 +24,14 @@ import subprocess
 import threading
 import time
 
+from smart_hub import hub_map
 from smart_hub.metrics import parse_latency_ms, percentile
 
 STARTUP_SEC = 8.0          # launch -> scenario clock start (services up)
 PEDESTRIAN_RESPONSE_MS = 1000.0     # pedestrian enters C -> robot / bus inside at standstill
+ROUTE_STOP_MS = 500.0      # REROUTE / NO_ROUTE event -> measured ground-truth standstill
+PLANNING_P95_MS = 250.0    # assignment 13.3
+FREE_FLOW_MPS = 0.35       # nominal edge speed of the cost model (13.2), restated here
 
 
 # ---------------------------------------------------------------- run helpers
@@ -284,12 +289,24 @@ def check_estop(ev, summary):
 
 
 def check_escort_ok(ev, summary):
+    """Arrival within tolerance; an injected obstacle must show the causal replan chain."""
     arrived = first(ev, 'ARRIVED', 'robot1')
     err = number(arrived['reason'], 'error_m') if arrived else None
-    ok = bool(first(ev, 'GOAL_SUCCEED', 'robot1')) and err is not None and err <= 0.20 and \
-        safety_ok(summary)
-    return ok, 'arrival error %.3f m, replans %d' % (
-        err if err is not None else -1, summary['counts']['reroutes']), {'arrival_err_m': err}
+    problems = safety_problems(summary)
+    if not first(ev, 'GOAL_SUCCEED', 'robot1') or err is None or err > 0.20:
+        problems.append('no arrival within 0.20 m')
+    detail = 'arrival error %.3f m' % (err if err is not None else -1)
+    values = {'arrival_err_m': err}
+    if injected(ev, 'place_obstacle'):
+        chain, found = replan_chain(ev)
+        problems.extend(chain)
+        if found.get('new_path') == 'NO_ROUTE':
+            problems.append('NO_ROUTE although a detour exists')
+        detail += '; ' + chain_text(found)
+        values['route_stop_ms'] = found.get('stop_ms')
+    if problems:
+        detail += '; FAILED: ' + '; '.join(problems)
+    return not problems, detail, values
 
 
 def check_goal_outcome(event, reason, extra=None):
@@ -358,10 +375,196 @@ def check_parking_stale(ev, summary):
     return ok, 'P2 becomes UNKNOWN when its sensor is stale', {}
 
 
+# ---------------------------------------------------------------- route checks
+def path_edges(path):
+    return [hub_map.edge_id(a, b) for a, b in zip(path, path[1:])]
+
+
+def path_problems(path, agent, goal, blocked=(), start=None):
+    """Continuity / permission problems of a node path, checked against the map only."""
+    allowed = {hub_map.edge_id(a, b) for a, b in hub_map.allowed_edges(agent)}
+    out = []
+    if not path or path[-1] != goal or (start is not None and path[0] != start):
+        out.append('endpoints %s' % '-'.join(path))
+    if len(set(path)) != len(path):
+        out.append('repeated node')
+    for e in path_edges(path):
+        if e not in allowed:
+            out.append('edge %s not permitted for %s' % (e, agent))
+        if e in blocked:
+            out.append('uses blocked edge %s' % e)
+    return out
+
+
+def free_flow_cost(path, wait_sec=0.0):
+    """Independent cost of a path without traffic: map lengths / nominal speed + wait."""
+    return sum(math.dist(hub_map.NODES[a], hub_map.NODES[b])
+               for a, b in zip(path, path[1:])) / FREE_FLOW_MPS + wait_sec
+
+
+def blocked_edges_at(events, t):
+    """Edges whose latest traffic_monitor label at time t is BLOCKED."""
+    label = {}
+    for e in sorted(events, key=lambda e: e['t']):
+        if e['event'].startswith('EDGE_') and e['t'] <= t:
+            label[e['entity_id']] = e['event']
+    return {edge for edge, name in label.items() if name == 'EDGE_BLOCKED'}
+
+
+def route_reply(events, label):
+    """Return the logged /route/compute reply of one route_request and the planner record."""
+    e = next((e for e in events if e['event'] == 'ROUTE_REPLY' and
+              e['correlation_id'] == label), None)
+    if e is None or 'success=' not in e['reason']:
+        return None
+    fields = dict(f.split('=', 1) for f in e['reason'].split() if '=' in f)
+    path = [] if fields['path'] == '-' else fields['path'].split('-')
+    head = e['reason'].split()[0]
+    planner = [p for p in events if p['event'] in ('ROUTE_COMPUTED', 'ROUTE_FAILED') and
+               p['reason'].startswith(head + ' ') and e['t'] - 1.0 <= p['t'] <= e['t']]
+    record = planner[-1]['reason'] if planner else ''
+    return {'t': e['t'], 'success': fields['success'] == 'true', 'reason': fields['reason'],
+            'path': path, 'cost': float(fields['cost']),
+            'round_trip_ms': float(fields['latency_ms']),
+            'wait': number(record, 'crossing_wait'),
+            'edges_age_ms': number(record, 'edges_age_ms'), 'planner_record': record}
+
+
+def replan_chain(ev, agent='robot1', kind='robot'):
+    """
+    Causal replanning evidence for a blockage injected on the active route (13.2, 14.3).
+
+    Order required on the recorded stamps: accepted ROUTE (old path) -> obstacle injected
+    -> EDGE_BLOCKED for an edge of the old path -> REROUTE naming that edge ->
+    ROUTE_STOP_MEASURED within ROUTE_STOP_MS -> new ROUTE with a higher generation that
+    is continuous, permitted and avoids the blocked edge (or an explicit NO_ROUTE).
+    """
+    problems, values = [], {}
+    routes = [e for e in all_of(ev, 'ROUTE', agent) if ' gen=' in e['reason']]
+    injections = [e for e in all_of(ev, 'INJECT', 'scenario_runner')
+                  if e['reason'] in ('place_obstacle', 'block_edges')]
+    if not injections:
+        return ['no blockage injected'], values
+    # The first blockage injected while the agent holds an accepted route.
+    inject = next((i for i in injections if any(r['t'] < i['t'] for r in routes)), None)
+    if inject is None:
+        return ['no accepted route before the blockage'], values
+    old = [e for e in routes if e['t'] < inject['t']][-1]
+    old_path = old['reason'].split()[1].split('-')
+    blocked = [e for e in ev if e['event'] == 'EDGE_BLOCKED' and e['t'] >= inject['t'] - 0.05
+               and e['entity_id'] in path_edges(old_path)]
+    if not blocked:
+        return ['no EDGE_BLOCKED on the active route %s' % '-'.join(old_path)], values
+    edge, t_blocked = blocked[0]['entity_id'], blocked[0]['t']
+    reroute = first(ev, 'REROUTE', agent, after=t_blocked - 1e-6,
+                    reason_has='edge %s blocked' % edge)
+    if reroute is None:
+        return ['no REROUTE after EDGE_BLOCKED %s' % edge], values
+    stop = first(ev, 'ROUTE_STOP_MEASURED', agent, after=reroute['t'] - 1e-6)
+    stop_ms = parse_latency_ms(stop['reason']) if stop else None
+    if stop_ms is None or stop_ms > ROUTE_STOP_MS:
+        problems.append('stop after REROUTE %s ms' % stop_ms)
+    new = first(ev, 'ROUTE', agent, after=reroute['t'])
+    no_route = first(ev, 'NO_ROUTE', agent, after=reroute['t'])
+    values.update(old_path='-'.join(old_path), blocked_edge=edge,
+                  detect_ms=round((t_blocked - inject['t']) * 1000.0),
+                  react_ms=round((reroute['t'] - t_blocked) * 1000.0),
+                  stop_ms=None if stop_ms is None else round(stop_ms))
+    if new is None and no_route is None:
+        problems.append('neither a new route nor NO_ROUTE after REROUTE')
+    elif new is not None and (no_route is None or new['t'] < no_route['t']):
+        new_path = new['reason'].split()[1].split('-')
+        goal = old_path[-1]
+        problems += path_problems(new_path, kind, goal, blocked_edges_at(ev, new['t']))
+        if edge in path_edges(new_path):
+            problems.append('new route keeps blocked edge %s' % edge)
+        if number(new['reason'], 'gen') <= number(old['reason'], 'gen'):
+            problems.append('route generation did not advance')
+        if not set(path_edges(old_path)) - set(path_edges(new_path)):
+            problems.append('route unchanged')
+        values.update(new_path='-'.join(new_path),
+                      replan_ms=round((new['t'] - reroute['t']) * 1000.0))
+    else:
+        values.update(new_path='NO_ROUTE',
+                      replan_ms=round((no_route['t'] - reroute['t']) * 1000.0))
+    return problems, values
+
+
+def chain_text(values):
+    return '%s -> %s (blocked %s; detect %s ms, react %s ms, stop %s ms, replan %s ms)' % (
+        values.get('old_path'), values.get('new_path'), values.get('blocked_edge'),
+        values.get('detect_ms'), values.get('react_ms'), values.get('stop_ms'),
+        values.get('replan_ms'))
+
+
 def check_s6(ev, summary):
-    labels = [(e['entity_id'], e['event']) for e in ev if e['event'].startswith('EDGE_')]
-    ok = ('Cs-J', 'EDGE_BLOCKED') in labels and ('B-Cn', 'EDGE_BLOCKED') in labels
-    return ok, 'Cs-J and B-Cn reported BLOCKED; planner oracle in unit tests', {}
+    """T11 / T12 on the live graph: service replies, causal NO_ROUTE stop, restore."""
+    problems = []
+    replies = {label: route_reply(ev, label)
+               for label in ('baseline', 'detour', 'congested', 'no_route', 'restored')}
+    for label, r in replies.items():
+        if r is None:
+            problems.append('%s: no reply' % label)
+    if problems:
+        return False, '; '.join(problems), {}
+
+    def expect(label, path=None, exact_cost=True):
+        r = replies[label]
+        blocked = blocked_edges_at(ev, r['t'])
+        if not r['success']:
+            problems.append('%s: %s' % (label, r['reason']))
+            return
+        found = path_problems(r['path'], 'car', 'E', blocked, start='A')
+        if path is not None and r['path'] != path:
+            found.append('path %s' % '-'.join(r['path']))
+        if r['wait'] is None or r['edges_age_ms'] is None:
+            found.append('planner record incomplete')
+        else:
+            floor = free_flow_cost(r['path'], r['wait'])
+            if exact_cost and not math.isclose(r['cost'], floor, rel_tol=1e-6):
+                found.append('cost %.6f != %.6f' % (r['cost'], floor))
+            if r['cost'] < floor * (1.0 - 1e-6):
+                found.append('cost %.6f below free flow %.6f' % (r['cost'], floor))
+        problems.extend('%s: %s' % (label, p) for p in found)
+
+    expect('baseline', ['A', 'Cs', 'J', 'E'])
+    if 'Cs-J' not in blocked_edges_at(ev, replies['detour']['t']):
+        problems.append('detour: Cs-J not BLOCKED at request time')
+    expect('detour', ['A', 'N', 'Cn', 'B', 'U', 'E'])
+    expect('congested', exact_cost=False)
+    r = replies['no_route']
+    if not {'Cs-J', 'B-Cn'} <= blocked_edges_at(ev, r['t']):
+        problems.append('no_route: corridors not both BLOCKED at request time')
+    if r['success'] or r['reason'] != 'NO_ROUTE' or r['path']:
+        problems.append('no_route: reply %s %s' % (r['reason'], '-'.join(r['path'])))
+    if blocked_edges_at(ev, replies['restored']['t']) & {'Cs-J', 'B-Cn'}:
+        problems.append('restored: corridor still BLOCKED at request time')
+    expect('restored', exact_cost=False)
+
+    # The manager with an active route through both corridors must stop and fail.
+    chain, values = replan_chain(ev)
+    problems.extend(chain)
+    stops = summary.get('route_stops', {})
+    abort = first(ev, 'GOAL_ABORT', 'robot1', reason_has='NO_ROUTE')
+    if values.get('new_path') != 'NO_ROUTE' or abort is None:
+        problems.append('robot did not end with NO_ROUTE')
+    if stops.get('motion_without_route', 1) or stops.get('unresolved', 1) or \
+            not stops.get('held_samples', {}).get('robot1'):
+        problems.append('zero motion after NO_ROUTE not shown: %s' % json.dumps(stops))
+    compute = [parse_latency_ms(e['reason']) for e in ev
+               if e['event'] in ('ROUTE_COMPUTED', 'ROUTE_FAILED')]
+    p95 = percentile(compute, 95) if compute else None
+    if p95 is None or p95 >= PLANNING_P95_MS:
+        problems.append('planning p95 %s ms' % p95)
+    problems.extend(safety_problems(summary))
+    detail = '; '.join(problems) if problems else (
+        'baseline %.3fs, detour %.3fs, congested via %s, NO_ROUTE with both corridors '
+        'blocked, restored via %s; robot %s, held %d samples at standstill; '
+        'planning p95 %.2f ms (n=%d)' % (
+            replies['baseline']['cost'], replies['detour']['cost'],
+            '-'.join(replies['congested']['path']), '-'.join(replies['restored']['path']),
+            chain_text(values), stops['held_samples']['robot1'], p95, len(compute)))
+    return not problems, detail, {'planning_p95_ms': p95, 'route_stop_ms': values.get('stop_ms')}
 
 
 # ---------------------------------------------------------------- cases
@@ -386,7 +589,7 @@ def build_cases(repeat):
     add('T08', 'S4', check_s4, 45, record=True)
     add('T09/T10', 'S5', check_s5, 80, record=True)
     add('T09', 'S5_FREE', check_free_flow, 60, seeds=seeds)
-    add('T11/T12', 'S6', check_s6, 75)
+    add('T11/T12', 'S6', check_s6, 85)
     add('T13', 'S7', check_escort_ok, 120, seeds=seeds, record=True)
     add('T14', 'S7', check_goal_outcome('GOAL_ABORT', 'READY_TIMEOUT'), 40, variant='no_ready')
     add('T14', 'S7', check_escort_cancel, 30, variant='cancel_while_moving')

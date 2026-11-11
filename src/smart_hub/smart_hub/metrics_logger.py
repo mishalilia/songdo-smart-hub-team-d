@@ -14,6 +14,9 @@ Crossing C is evaluated from private ground truth with no grace interval
 response latency and contact are separate measures, and every change of the occupant set
 is kept in crossing_occupancy.csv. Passenger waits cover everyone who entered the queue
 (metrics.QueueLedger): boarded, abandoned and still waiting at run end (right-censored).
+A REROUTE or NO_ROUTE event starts a stop watch on the agent's ground-truth speed
+(metrics.StopMonitor): ROUTE_STOP_MEASURED is the time to measured standstill, and motion
+after a NO_ROUTE stop is reported as MOTION_WITHOUT_ROUTE.
 
 Clock domains: event times and data ages use ROS header stamps (one host, one clock);
 `latency_ms=` fields are monotonic intervals measured inside the emitting node; ground
@@ -47,7 +50,7 @@ from smart_hub.freshness import Retained
 from smart_hub.hub_events import ack_reset
 from smart_hub.metrics import (
     CrossingMonitor, parse_latency_ms, parse_wait_sec, QueueLedger,
-    relaxed_crossing_conflict, Series,
+    relaxed_crossing_conflict, Series, StopMonitor,
 )
 from smart_hub.params import check_parameters
 from smart_hub.qos import R10, R100, R1T, SENSOR
@@ -193,6 +196,7 @@ class MetricsLogger(Node):
         self.truth_agents, self.truth_peds = [], []
         self.truth_stamp = {}
         self.crossing = CrossingMonitor()
+        self.route_stops = StopMonitor()
         self.crossing_state = Retained(CROSSING_STALE_SEC)
         self.relaxed_conflicts = 0
         self.in_conflict = False
@@ -303,7 +307,10 @@ class MetricsLogger(Node):
             self.passengers.balked += 1
         elif msg.event in ('CROSSING_GRANTED', 'CROSSING_RELEASED', 'CROSSING_FREE'):
             self.crossing.on_event(msg.event, msg.correlation_id)
+        elif msg.event in ('REROUTE', 'NO_ROUTE'):
+            self.route_stops.demand(msg.entity_id, msg.event, t)
         if msg.event == 'GOAL_ACCEPTED':
+            self.route_stops.release(msg.entity_id)
             self.goal_started[msg.correlation_id] = time.monotonic()
         elif msg.event in ('GOAL_SUCCEED', 'GOAL_ABORT', 'GOAL_CANCELED'):
             start = self.goal_started.pop(msg.correlation_id, None)
@@ -354,7 +361,7 @@ class MetricsLogger(Node):
             None if state is None else state.owner_id, '' if state is None else state.token)
         if row:
             self.row('crossing_occupancy', row)
-        for event, entity, reason in found:
+        for event, entity, reason in found + self.route_stops.sample(t, self.truth_agents):
             self.row('events', ['%.3f' % t, entity, event, reason, 'ground_truth'])
             latency = parse_latency_ms(reason)
             if latency is not None:
@@ -418,6 +425,7 @@ class MetricsLogger(Node):
                 'boarded': c['BOARDED'],
             },
             'crossing': crossing,
+            'route_stops': self.route_stops.summary(),
             'queue': queue,
             'queue_wait_sec': queue['wait_boarded_sec'],     # boarded passengers only
             'mission_time_sec': self.mission_time.summary(),

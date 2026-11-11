@@ -53,7 +53,8 @@ from smart_hub_interfaces.msg import (
     VehicleStateArray,
 )
 from smart_hub_interfaces.srv import (
-    ClearSafetyStop, ReleaseParking, RequestCrossing, ReserveParking, ResetScenario,
+    ClearSafetyStop, ComputeRoute, ReleaseParking, RequestCrossing, ReserveParking,
+    ResetScenario,
 )
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
@@ -170,6 +171,7 @@ class ScenarioRunner(Node):
         self.crossing = {}        # agent id -> {'token', 'entered', 'renew_at'}
         self.crossing_busy = {}   # agent id -> monotonic time before which no new request
         self.clear_stop_client = self.create_client(ClearSafetyStop, '/safety/clear_stop')
+        self.route_client = self.create_client(ComputeRoute, '/route/compute')
         self.dock_client = ActionClient(self, DockBus, '/bus/dock')
         self.escort_client = ActionClient(self, EscortPassenger, '/robot/escort')
         self.goal_handles = {}
@@ -623,6 +625,8 @@ class ScenarioRunner(Node):
             goal.destination_node = ev.get('destination', 'D')
             goal.max_duration_sec = float(ev.get('max_duration_sec', 240.0))
             self._send_goal(self.escort_client, goal, 'escort')
+        elif kind == 'route_request':
+            self._route_request(ev)
         elif kind == 'cancel_goal':
             handle = self.goal_handles.get(ev['target'])
             if handle is None:
@@ -631,6 +635,35 @@ class ScenarioRunner(Node):
                 handle.cancel_goal_async()
                 self.event('scenario_runner', 'CANCEL_REQUESTED', ev['target'],
                            _goal_id(handle))
+
+    def _route_request(self, ev):
+        """Call /route/compute on the live graph and log the whole reply (13.3)."""
+        label = ev.get('label', '')
+        req = ComputeRoute.Request()
+        req.start_node, req.goal_node = ev['start'], ev['goal']
+        req.agent_type = ev.get('agent', 'car')
+        req.excluded_edges = list(ev.get('excluded', []))
+        head = '%s->%s agent=%s' % (req.start_node, req.goal_node, req.agent_type)
+        if not self.route_client.service_is_ready():
+            self.event('scenario_runner', 'ROUTE_REPLY', head + ' unavailable', label)
+            return
+        sent = time.monotonic()
+
+        def done(f):
+            latency = (time.monotonic() - sent) * 1000.0
+            if f.exception() is not None:
+                self.event('scenario_runner', 'ROUTE_REPLY',
+                           '%s failed %s' % (head, f.exception()), label)
+                return
+            r = f.result()
+            self.event('scenario_runner', 'ROUTE_REPLY',
+                       '%s success=%s reason=%s path=%s waypoints=%d cost=%.6f '
+                       'latency_ms=%.2f' % (
+                           head, str(r.success).lower(), r.reason,
+                           '-'.join(r.node_ids) or '-', len(r.waypoints),
+                           r.estimated_cost_sec, latency), label)
+
+        self.route_client.call_async(req).add_done_callback(done)
 
     def _scripted_crossing(self, w):
         """ACQUIRE for scripted agents waiting at C, RENEW while inside, RELEASE once out."""

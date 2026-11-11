@@ -42,6 +42,8 @@ route_planner:
   ros__parameters:
     replan_improvement_ratio: 0.15
     use_edge_states: true
+    edge_states_timeout_sec: 1.5      # receipt age and observation-stamp age
+    crossing_wait_sec: 4.0            # expected wait w_e while C is not free
 
 robot_manager:
   ros__parameters:

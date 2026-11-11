@@ -31,6 +31,7 @@ RANGES = {
     'replan_improvement_ratio': (0.0, 1.0),
     'replan_period_sec': (0.5, 60.0),
     'edge_states_timeout_sec': (0.1, 10.0),
+    'crossing_wait_sec': (0.0, 60.0),
     # motion and safety
     'robot_speed_limit': (0.01, 0.5),
     'bus_speed_limit': (0.01, 1.0),

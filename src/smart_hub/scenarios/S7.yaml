@@ -1,6 +1,9 @@
 # Author: Timur Klechshev (12235650)
 # S7 — autonomous robot passenger escort (assignment 14.3).
-# Nominal escort R -> D with obstacle O inserted during ESCORT.
+# Nominal escort R -> D with obstacle O inserted during ESCORT: Cs-J is an edge of the
+# accepted route, so the robot must stop, reroute and still arrive (checked causally).
+# obstacle_before_crossing inserts O after the ESCORT route is accepted and before the
+# robot reaches crossing C.
 # Test variants (assignment 14.3): launch with variant:=<name>.
 scenario_id: S7
 duration_sec: 240
@@ -19,7 +22,7 @@ variants:
     - {type: remove, event_type: confirm_ready}
   obstacle_before_crossing:
     - {type: remove, event_type: place_obstacle}
-    - {t: 3.0,  type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
+    - {t: 10.0, type: place_obstacle, id: O, center: [7.0, 2.0], radius: 0.35}
   congestion:
     - {type: remove, event_type: place_obstacle}
     - {t: 15.0, type: spawn_slow_vehicles, edge: Cs-J, count: 3, speed_mps: 0.05}
