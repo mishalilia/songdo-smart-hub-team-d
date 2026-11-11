@@ -73,7 +73,7 @@ metrics_logger:
 hub_ui:
   ros__parameters:
     host: 0.0.0.0
-    port: 8080
+    # port: launch argument ui_port (default 8080). A value here would override it.
 
 scenario_runner:
   ros__parameters:

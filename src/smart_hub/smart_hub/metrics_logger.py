@@ -16,7 +16,9 @@ is kept in crossing_occupancy.csv. Passenger waits cover everyone who entered th
 (metrics.QueueLedger): boarded, abandoned and still waiting at run end (right-censored).
 A REROUTE or NO_ROUTE event starts a stop watch on the agent's ground-truth speed
 (metrics.StopMonitor): ROUTE_STOP_MEASURED is the time to measured standstill, and motion
-after a NO_ROUTE stop is reported as MOTION_WITHOUT_ROUTE.
+after a NO_ROUTE stop is reported as MOTION_WITHOUT_ROUTE. Two seconds into a run the
+discovered graph is recorded once (nodes, publisher QoS and subscribers of the audited
+topics, rates) for the test matrix to compare with the interface table.
 
 Clock domains: event times and data ages use ROS header stamps (one host, one clock);
 `latency_ms=` fields are monotonic intervals measured inside the emitting node; ground
@@ -72,9 +74,12 @@ AGE_TOPICS = [
     ('/camera/image_raw', Image, SENSOR),
 ]
 RATE_WINDOW_SEC = 5.0
+GRAPH_AUDIT_SEC = 2.0           # after RUN_START, before the first scripted fault
+AUDIT_TOPICS = [t for t, _, _ in AGE_TOPICS] + ['/hub/events', '/hub/estop']
 CROSSING_STALE_SEC = 1.0
 RELAXED_REACTION_SEC = 1.0      # midterm diagnostic only, not used by any reported measure
-EVALUATOR = 'metrics_logger r2: strict crossing occupancy, censored waits, provenance'
+EVALUATOR = 'metrics_logger r3: strict crossing occupancy, censored waits, route stops, ' \
+            'graph audit, provenance'
 HASHED_FILES = ('config/hub.yaml', 'config/map.yaml', 'models/demand_ridge.json')
 
 
@@ -173,6 +178,7 @@ class MetricsLogger(Node):
                                      lambda m, t=topic: self.on_stamped(t, m), qos)
         self.metadata = run_metadata()
         self.param_clients = {}
+        self.receipts = {}               # rolling window, kept across runs
         self.start_run('', '', '')
         self.create_timer(1.0, self.publish)
         self.create_timer(5.0, self.write_summary)
@@ -184,7 +190,7 @@ class MetricsLogger(Node):
         self.started_ros = self.get_clock().now().nanoseconds / 1e9
         self.latency = {}
         self.age = {}
-        self.receipts = {}
+        self.graph = {}
         self.counts = Counter()
         self.energy = {}
         self.started_utc = datetime.now(timezone.utc).isoformat(timespec='seconds')
@@ -356,6 +362,9 @@ class MetricsLogger(Node):
         now = self.get_clock().now().nanoseconds / 1e9
         state = self.crossing_state.get(now, time.monotonic())
         t = self.t(stamp)
+        if self.run_id and not self.graph and \
+                time.monotonic() - self.started >= GRAPH_AUDIT_SEC:
+            self.graph = self.audit_graph()
         row, found = self.crossing.sample(
             t, self.truth_agents, self.truth_peds,
             None if state is None else state.owner_id, '' if state is None else state.token)
@@ -386,6 +395,21 @@ class MetricsLogger(Node):
         self.in_conflict = conflict
 
     # ------------------------------------------------------------------ outputs
+    def audit_graph(self):
+        """Record the discovered nodes, publisher QoS and topic rates once per run."""
+        topics = {}
+        for topic in AUDIT_TOPICS:
+            pubs = self.get_publishers_info_by_topic(topic)
+            topics[topic] = {
+                'publishers': sorted({'%s %s %s' % (
+                    i.node_name, i.qos_profile.reliability.name,
+                    i.qos_profile.durability.name) for i in pubs}),
+                'subscribers': sorted({i.node_name for i in
+                                       self.get_subscriptions_info_by_topic(topic)}),
+                'rate_hz': round(self.rate(topic), 2)}
+        return {'t_sec': round(time.monotonic() - self.started, 2),
+                'nodes': sorted(set(self.get_node_names())), 'topics': topics}
+
     def rate(self, topic):
         window = self.receipts.get(topic)
         if not window or len(window) < 2:
@@ -408,6 +432,7 @@ class MetricsLogger(Node):
             'latency_ms': {k: s.summary() for k, s in sorted(self.latency.items())},
             'topic_age_ms': {k: s.summary() for k, s in sorted(self.age.items())},
             'topic_rate_hz': {t: round(self.rate(t), 2) for t, _, _ in AGE_TOPICS},
+            'graph': self.graph,
             'energy': self.energy,
             'counts': {
                 'collisions': c['COLLISION'],

@@ -3,9 +3,18 @@
 Verification matrix runner, T01-T18 (assignment 21).
 
 Launches the full hub for every case (scenario, variant, seed, dispatch mode), optionally
-kills a node during the run (T17 / T18), then checks the assignment pass criteria on the
-recorded run (evidence/runs/<run_id>/events.csv + summary.json). Writes
-<out>/results.csv and <out>/summary.md.
+kills a node during the run (T17 / T18), then checks the assignment pass criteria and the
+graph audit (nodes, publisher QoS, rates) on the recorded run
+(evidence/runs/<run_id>/events.csv + summary.json).
+
+Every launched attempt is appended to <out>/attempts.csv and never rewritten: harness
+version, matrix ID, attempt ID, source commit, outcome and failure class. A failure is
+`infrastructure` when the run could not be judged (no record, startup gate or graph audit
+incomplete, kill target not found) and `application` when a pass criterion failed on a
+complete run. Only an infrastructure failure is attempted a second time; both attempts
+stay in attempts.csv, and the run records of every attempt of a case that failed at least
+once are copied to <out>/records/<attempt_id>/. <out>/results.csv holds the last attempt of
+each case, and <out>/summary.md reports first-attempt and eventual totals separately.
 
   ros2 run smart_hub run_test_matrix --parallel 5 --out evidence/test_matrix
   ros2 run smart_hub run_test_matrix --cases T13 --repeat 3     # subset
@@ -19,19 +28,54 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
 import time
 
 from smart_hub import hub_map
+from smart_hub.demand_model import paired_bootstrap
 from smart_hub.metrics import parse_latency_ms, percentile
 
+# 1.0  first full run of 2026-10-22: node kills on a wall-clock timer, one row per case.
+# 1.1  same day: kills triggered by run events; a case whose startup gate reported missing
+#      nodes was run again and its first row overwritten (eleven T17 / T18 rows replaced).
+# 2.0  every attempt kept with an attempt ID, source commit and failure class; graph
+#      audit; strict crossing, route / replan and measured-standstill criteria.
+HARNESS_VERSION = '2.0'
+MAX_ATTEMPTS = 2           # the second one only after an infrastructure failure
+RECORD_FILES = ('events.csv', 'summary.json', 'params.json', 'crossing_occupancy.csv',
+                'harness.json')
+ATTEMPT_FIELDS = ['harness_version', 'matrix_id', 'attempt_id', 'attempt', 'commit', 'test',
+                  'scenario', 'variant', 'seed', 'mode', 'run_id', 'passed', 'failure_class',
+                  'superseded_by', 'details']
 STARTUP_SEC = 8.0          # launch -> scenario clock start (services up)
+STANDSTILL_MS = 1000.0     # supervised stop input -> pose observed at standstill
 PEDESTRIAN_RESPONSE_MS = 1000.0     # pedestrian enters C -> robot / bus inside at standstill
 ROUTE_STOP_MS = 500.0      # REROUTE / NO_ROUTE event -> measured ground-truth standstill
 PLANNING_P95_MS = 250.0    # assignment 13.3
 FREE_FLOW_MPS = 0.35       # nominal edge speed of the cost model (13.2), restated here
+RATE_BAND = (0.8, 1.25)    # accepted measured / nominal topic rate
+ON_CHANGE_TOPICS = ('/traffic/edges', '/parking/state')   # periodic plus on change: no maximum
+# Assignment 5, restated: every node of the launch and, per audited topic, its publisher,
+# reliability, durability and nominal rate.
+GRAPH_NODES = (
+    'scenario_runner', 'passenger_detector', 'demand_predictor', 'bus_manager',
+    'parking_manager', 'traffic_monitor', 'route_planner', 'robot_manager',
+    'hub_coordinator', 'safety_supervisor', 'actuator_bridge', 'metrics_logger',
+    'dashboard_marker_publisher', 'hub_ui')
+GRAPH_TOPICS = {
+    '/camera/image_raw': ('scenario_runner', 'BEST_EFFORT', 'VOLATILE', 10.0),
+    '/hub/queue': ('passenger_detector', 'RELIABLE', 'VOLATILE', 5.0),
+    '/hub/demand': ('demand_predictor', 'RELIABLE', 'VOLATILE', 1.0),
+    '/hub/vehicles': ('scenario_runner', 'RELIABLE', 'VOLATILE', 10.0),
+    '/traffic/edges': ('traffic_monitor', 'RELIABLE', 'VOLATILE', 2.0),
+    '/crossing/state': ('hub_coordinator', 'RELIABLE', 'TRANSIENT_LOCAL', 10.0),
+    '/parking/state': ('parking_manager', 'RELIABLE', 'TRANSIENT_LOCAL', 2.0),
+    '/hub/safety': ('safety_supervisor', 'RELIABLE', 'TRANSIENT_LOCAL', 10.0),
+    '/robot/odom': ('scenario_runner', 'RELIABLE', 'VOLATILE', 20.0),
+}
 
 
 # ---------------------------------------------------------------- run helpers
@@ -92,6 +136,67 @@ def safety_problems(summary):
 
 def safety_ok(summary):
     return not safety_problems(summary)
+
+
+def graph_problems(summary, exempt=()):
+    """Compare the run's graph audit with GRAPH_NODES / GRAPH_TOPICS (empty list: equal)."""
+    graph = summary.get('graph') or {}
+    if not graph:
+        return ['no graph audit in the run record']
+    problems = ['node %s not discovered' % n for n in GRAPH_NODES
+                if n not in graph['nodes'] and n not in exempt]
+    for topic, (node, reliability, durability, hz) in GRAPH_TOPICS.items():
+        if node in exempt:
+            continue
+        seen = graph['topics'].get(topic, {})
+        if seen.get('publishers') != ['%s %s %s' % (node, reliability, durability)]:
+            problems.append('%s published by %s' % (topic, seen.get('publishers')))
+        rate = seen.get('rate_hz', 0.0)
+        top = float('inf') if topic in ON_CHANGE_TOPICS else RATE_BAND[1] * hz
+        if not RATE_BAND[0] * hz <= rate <= top:
+            problems.append('%s at %.2f Hz, nominal %.0f Hz' % (topic, rate, hz))
+    return problems
+
+
+def rate_section(rows, runs_dir):
+    """Measured rates of the audited topics over the runs of the matrix."""
+    rates = {}
+    for row in rows:
+        try:
+            with open(os.path.join(runs_dir, row['run_id'], 'summary.json')) as f:
+                topics = (json.load(f).get('graph') or {}).get('topics', {})
+        except (OSError, ValueError):
+            continue
+        for topic in GRAPH_TOPICS:
+            if topic in topics:
+                rates.setdefault(topic, []).append(topics[topic]['rate_hz'])
+    if not rates:
+        return []
+    lines = ['', '## Graph audit', '',
+             'Recorded by metrics_logger %.0f s after the start of every run: discovered '
+             'nodes, publisher and QoS of each topic, and the receive rate over the last '
+             '5 s (the runs of the matrix execute in parallel on one machine). A run is '
+             'accepted with all %d nodes, the publisher / reliability / durability below '
+             'and a rate of at least %d %% of nominal (at most %d %% for purely periodic '
+             'topics).' % (2.0, len(GRAPH_NODES), RATE_BAND[0] * 100, RATE_BAND[1] * 100), '',
+             '| Topic | Publisher | QoS | Nominal (Hz) | Runs | Measured min / median / max '
+             '(Hz) |', '|---|---|---|---|---|---|']
+    for topic, (node, reliability, durability, hz) in GRAPH_TOPICS.items():
+        v = sorted(rates.get(topic, []))
+        if v:
+            lines.append('| %s | %s | %s, %s | %.0f%s | %d | %.2f / %.2f / %.2f |' % (
+                topic, node, reliability.lower(), durability.lower().replace('_', ' '), hz,
+                ' + on change' if topic in ON_CHANGE_TOPICS else '', len(v), v[0],
+                percentile(v, 50), v[-1]))
+    return lines
+
+
+def standstill(ev, after):
+    """Return (latency_ms, observer_delay_ms) of robot1's first measured standstill."""
+    hit = first(ev, 'STANDSTILL_MEASURED', 'robot1', after=after)
+    if hit is None:
+        return None, None
+    return number(hit['reason'], 'latency_ms'), number(hit['reason'], 'observer_delay_ms')
 
 
 def crossing_text(summary):
@@ -277,15 +382,19 @@ def check_free_flow(ev, summary):
 
 
 def check_estop(ev, summary):
+    """Zero output within 0.20 s of the E-stop (16.3) and a measured standstill after it."""
     latch = first(ev, 'STOP_LATCHED', reason_has='ESTOP')
     lat = parse_latency_ms(latch['reason']) if latch else None
+    still, delay = standstill(ev, latch['t'] - 0.1) if latch else (None, None)
     abort = first(ev, 'GOAL_ABORT', 'robot1', after=latch['t'] - 0.1 if latch else 1e9)
     restart = first(ev, 'GOAL_ACCEPTED', 'robot1', after=latch['t'] if latch else 1e9)
     ok = lat is not None and lat <= 200.0 and bool(abort) and not restart and \
-        safety_ok(summary)
-    return ok, 'stop latency %.2f ms, mission %s, no restart: %s' % (
-        lat or -1, abort['reason'] if abort else 'not aborted', not restart), {
-        'stop_latency_ms': lat}
+        still is not None and still <= STANDSTILL_MS and safety_ok(summary)
+    details = 'zero command %.2f ms, measured standstill %s ms, mission %s, ' \
+        'no restart: %s' % (lat or -1, '-' if still is None else '%.0f' % still,
+                            abort['reason'] if abort else 'not aborted', not restart)
+    return ok, details, {
+        'stop_latency_ms': lat, 'standstill_ms': still, 'observer_delay_ms': delay}
 
 
 def check_escort_ok(ev, summary):
@@ -333,25 +442,48 @@ def check_s8(ev, summary):
         elif e['event'] == 'DISPATCH_RESULT':
             outstanding -= 1
     slots = [e['reason'].split()[0] for e in all_of(ev, 'SLOT_RESERVED') if 'ttl=' in e['reason']]
-    wait = summary['queue_wait_sec']
-    ok = safety_ok(summary) and overlaps == 0 and len(slots) == len(set(slots)) and \
-        bool(first(ev, 'GOAL_SUCCEED', 'robot1'))
-    return ok, 'collisions %d, %s, overlapping dispatch %d, queue wait mean %s s' % (
-        summary['counts']['collisions'], crossing_text(summary), overlaps,
-        '%.1f' % wait['mean'] if wait.get('n') else '-'), {
-        'queue_wait_mean_s': wait.get('mean'), 'boarded': summary['counts']['boarded']}
+    queue = summary['queue']
+    wait, everyone = queue['wait_boarded_sec'], queue['wait_all_lower_bound_sec']
+    problems = safety_problems(summary)
+    if overlaps or len(slots) != len(set(slots)):
+        problems.append('overlapping dispatch %d, duplicate slot grants %d' % (
+            overlaps, len(slots) - len(set(slots))))
+    if not first(ev, 'GOAL_SUCCEED', 'robot1'):
+        problems.append('no escort completed')
+    detail = 'collisions %d, %s; boarded %d of %d arrived (abandoned %d, waiting at end ' \
+        '%d); boarded wait mean %s s, all-passenger wait >= %s s' % (
+            summary['counts']['collisions'], crossing_text(summary), queue['boarded'],
+            queue['arrived'], queue['abandoned'], queue['waiting_at_end'],
+            '%.1f' % wait['mean'] if wait.get('n') else '-',
+            '%.1f' % everyone['mean'] if everyone.get('n') else '-')
+    if problems:
+        detail += '; FAILED: ' + '; '.join(problems)
+    return not problems, detail, {
+        'queue_wait_mean_s': wait.get('mean'), 'queue_wait_p50_s': wait.get('p50'),
+        'queue_wait_p95_s': wait.get('p95'), 'queue_wait_n': wait.get('n'),
+        'wait_all_lower_bound_mean_s': everyone.get('mean'),
+        'wait_all_lower_bound_p95_s': everyone.get('p95'), 'arrived': queue['arrived'],
+        'boarded': queue['boarded'], 'abandoned': queue['abandoned'],
+        'waiting_at_end': queue['waiting_at_end'],
+        'completion_rate': queue['completion_rate']}
 
 
 def check_s9(ev, summary):
     latch = first(ev, 'STOP_LATCHED', reason_has='ESTOP')
     lat = parse_latency_ms(latch['reason']) if latch else None
+    still, delay = standstill(ev, latch['t'] - 0.1) if latch else (None, None)
     rejected = first(ev, 'CLEAR_STOP_REJECTED', after=latch['t'] if latch else 0)
     cleared = first(ev, 'STOP_CLEARED', after=rejected['t'] if rejected else 1e9)
     restart = first(ev, 'GOAL_ACCEPTED', 'robot1', after=latch['t'] if latch else 1e9)
     ok = lat is not None and lat <= 200 and bool(rejected) and bool(cleared) and \
+        still is not None and still <= STANDSTILL_MS and safety_ok(summary) and \
         not restart and bool(first(ev, 'GOAL_ABORT', 'robot1', reason_has='SAFE_STOP'))
-    return ok, 'stop latency %.2f ms, reset rejected while stale: %s, then accepted: %s' % (
-        lat or -1, bool(rejected), bool(cleared)), {'stop_latency_ms': lat}
+    details = 'zero command %.2f ms, measured standstill %s ms, reset rejected while ' \
+        'stale: %s, then accepted: %s' % (
+            lat or -1, '-' if still is None else '%.0f' % still, bool(rejected),
+            bool(cleared))
+    return ok, details, {
+        'stop_latency_ms': lat, 'standstill_ms': still, 'observer_delay_ms': delay}
 
 
 def check_after_kill(event, entity, within):
@@ -645,29 +777,71 @@ def wait_for_event(runs_dir, label, seed, since, event, entity, reason_has, time
     return None
 
 
+def case_row(case):
+    return {'test': case['test'], 'scenario': case['scenario'], 'variant': case['variant'],
+            'seed': case['seed'], 'mode': case['mode'], 'run_id': '', 'failure_class': ''}
+
+
+def append_attempt(opts, lock, row):
+    """Append one attempt to <out>/attempts.csv; rows of that file are never rewritten."""
+    path = os.path.join(opts.out, 'attempts.csv')
+    with lock:
+        new = not os.path.exists(path)
+        with open(path, 'a', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=ATTEMPT_FIELDS, extrasaction='ignore')
+            if new:
+                w.writeheader()
+            w.writerow(row)
+
+
+def archive_records(opts, rows):
+    """Copy the run records of a failed case (every attempt) to <out>/records/<attempt_id>."""
+    for row in rows:
+        src = os.path.join(opts.runs_dir, row['run_id'])
+        if not row['run_id'] or not os.path.isdir(src):
+            continue
+        dst = os.path.join(opts.out, 'records', row['attempt_id'])
+        os.makedirs(dst, exist_ok=True)
+        for name in RECORD_FILES:
+            if os.path.exists(os.path.join(src, name)):
+                shutil.copy(os.path.join(src, name), dst)
+
+
 def run_case(case, index, opts, lock):
-    try:
-        row = _run_case(case, index, opts, lock)
-        if row.get('startup_missing'):
-            # The ROS graph did not come up (DDS discovery under load): an infrastructure
-            # failure, not a test result. Run the case once more and say so.
-            note = row['startup_missing']
-            row = _run_case(case, index, opts, lock, retry=True)
-            row['details'] = '%s (rerun: first attempt started without %s)' % (
-                row['details'], note)
-        row.pop('startup_missing', None)
-        return row
-    except Exception as exc:              # one broken run must not stop the matrix
+    """Run one case; only an infrastructure failure is attempted again, both are kept."""
+    rows = []
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            row = _run_case(case, index, opts, lock, attempt)
+        except Exception as exc:              # one broken run must not stop the matrix
+            row = dict(case_row(case), passed=False, failure_class='infrastructure',
+                       details='runner error: %r' % exc)
+        again = row['failure_class'] == 'infrastructure' and attempt < MAX_ATTEMPTS
+        row.update(harness_version=HARNESS_VERSION, matrix_id=opts.matrix_id,
+                   attempt=attempt, commit=opts.commit_label,
+                   attempt_id='%s-%03d-%d' % (opts.matrix_id, index, attempt),
+                   superseded_by='%s-%03d-%d' % (opts.matrix_id, index, attempt + 1)
+                   if again else '')
+        append_attempt(opts, lock, row)
         with lock:
-            print('%-8s %-9s ERROR %r' % (case['test'], case['scenario'], exc), flush=True)
-        return {'test': case['test'], 'scenario': case['scenario'],
-                'variant': case['variant'], 'seed': case['seed'], 'mode': case['mode'],
-                'run_id': '', 'passed': False, 'details': 'runner error: %r' % exc}
+            print('%-8s %-9s %-26s seed %-3d %-10s #%d %s  %s' % (
+                row['test'], case['scenario'], case['variant'] or '-', case['seed'],
+                case['mode'], attempt,
+                'PASS' if row['passed'] else 'FAIL (%s)' % row['failure_class'],
+                row['details']), flush=True)
+        rows.append(row)
+        if not again:
+            break
+    if len(rows) > 1 or not rows[-1]['passed']:
+        archive_records(opts, rows)
+    first_row = rows[0]
+    return dict(rows[-1], attempts=len(rows),
+                first_attempt='pass' if first_row['passed'] else first_row['failure_class'])
 
 
-def _run_case(case, index, opts, lock, retry=False):
+def _run_case(case, index, opts, lock, attempt):
     domain = opts.domain_base + index % 60           # valid ROS_DOMAIN_ID range is 0..101
-    tag = 'm%05d' % (opts.tag_base + index) + ('r' if retry else '')
+    tag = 'm%05d' % (opts.tag_base + index) + 'r' * (attempt - 1)
     label = case['scenario'] + ('-' + case['variant'] if case['variant'] else '') + '-' + tag
     cmd = ['ros2', 'launch', 'smart_hub', 'hub.launch.py', 'scenario:=' + case['scenario'],
            'seed:=%d' % case['seed'], 'dispatch_mode:=' + case['mode'],
@@ -675,28 +849,23 @@ def _run_case(case, index, opts, lock, retry=False):
            'record:=' + ('true' if case['record'] else 'false')]
     if case['variant']:
         cmd.append('variant:=' + case['variant'])
-    env = dict(os.environ, ROS_DOMAIN_ID=str(domain), SMART_HUB_RUN_TAG=tag)
+    env = dict(os.environ, ROS_DOMAIN_ID=str(domain), SMART_HUB_RUN_TAG=tag,
+               SMART_HUB_COMMIT=opts.commit, SMART_HUB_DIRTY='1' if opts.dirty else '0')
     start = time.time()
     log = open(os.path.join(opts.out, 'logs', '%03d_%s.log' % (index, label)), 'w')
     proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT,
                             start_new_session=True)
+    killed, kill_wall = True, None
     if case['kill']:
-        at, pattern = case['kill']
-        if isinstance(at, tuple):                 # (event, entity, reason, delay): event-based
-            event, entity, reason_has, delay = at
-            wait_for_event(opts.runs_dir, label, case['seed'], start, event, entity,
-                           reason_has, 60)
-            time.sleep(delay)
-        else:
-            time.sleep(max(0.0, STARTUP_SEC + at))
+        (event, entity, reason_has, delay), pattern = case['kill']
+        wait_for_event(opts.runs_dir, label, case['seed'], start, event, entity,
+                       reason_has, 60)
+        time.sleep(delay)
         pids = subprocess.run(['pgrep', '-g', str(proc.pid), '-f', 'lib/smart_hub/' + pattern],
                               capture_output=True, text=True).stdout.split()
         for pid in pids:
             os.kill(int(pid), signal.SIGKILL)
-        kill_wall = time.time()
-        if not pids:
-            with lock:
-                print('WARNING: %s: no %s process to kill' % (label, pattern), flush=True)
+        kill_wall, killed = time.time(), bool(pids)
     time.sleep(max(0.0, start + STARTUP_SEC + case['duration'] - time.time()))
     os.killpg(proc.pid, signal.SIGINT)
     try:
@@ -705,35 +874,49 @@ def _run_case(case, index, opts, lock, retry=False):
         os.killpg(proc.pid, signal.SIGKILL)
     log.close()
     run_dir = newest_run(opts.runs_dir, label, case['seed'], start)
-    row = {'test': case['test'], 'scenario': case['scenario'], 'variant': case['variant'],
-           'seed': case['seed'], 'mode': case['mode'], 'run_id': os.path.basename(run_dir or '')}
+    row = dict(case_row(case), run_id=os.path.basename(run_dir or ''), passed=False,
+               failure_class='infrastructure')
     if not run_dir:
-        row.update(passed=False, details='no run record found')
-        return row
+        return dict(row, details='no run record found')
     events = load_events(run_dir)
     started = first(events, 'SCENARIO_STARTED', 'scenario_runner')
     missing = started['reason'].split('missing=')[-1] if started else 'all nodes'
-    if missing and not retry:
-        row.update(passed=False, details='startup incomplete', startup_missing=missing)
-        return row
+    if missing:
+        return dict(row, details='startup gate incomplete, missing=%s' % missing)
+    if not killed:
+        return dict(row, details='no %s process to kill' % case['kill'][1])
     time.sleep(1.0)                       # let metrics_logger write its final summary
-    with open(os.path.join(run_dir, 'summary.json')) as f:
-        summary = json.load(f)
+    try:
+        with open(os.path.join(run_dir, 'summary.json')) as f:
+            summary = json.load(f)
+    except (OSError, ValueError) as exc:
+        return dict(row, details='no readable summary.json: %r' % exc)
+    graph = graph_problems(summary, exempt=(case['kill'][1],) if case['kill'] else ())
+    if graph:
+        return dict(row, details='graph audit: ' + '; '.join(graph))
     kwargs = {}
-    if case['kill'] and 'kill_t' in inspect.signature(case['check']).parameters:
-        # Map the wall-clock kill onto the run's event clock (t of metrics_logger).
+    if case['kill']:
+        # Map the wall-clock kill onto the run's event clock (t of metrics_logger) and keep
+        # it with the run record, so the case can be evaluated again later.
         offset = os.path.getmtime(os.path.join(run_dir, 'events.csv')) - \
             (events[-1]['t'] if events else 0)
-        kwargs['kill_t'] = kill_wall - offset
+        kill_t = kill_wall - offset
+        with open(os.path.join(run_dir, 'harness.json'), 'w') as f:
+            json.dump({'harness_version': HARNESS_VERSION, 'killed_node': case['kill'][1],
+                       'kill_trigger': list(case['kill'][0]), 'kill_wall_unix': kill_wall,
+                       'kill_t': round(kill_t, 3),
+                       'clock': 'kill_t = wall-clock kill time minus (mtime of events.csv '
+                                'minus t of its last event); resolution about 50 ms'}, f,
+                      indent=2)
+        row.update(killed_node=case['kill'][1], kill_t=round(kill_t, 3))
+        if 'kill_t' in inspect.signature(case['check']).parameters:
+            kwargs['kill_t'] = kill_t
     try:
         ok, details, metrics = case['check'](events, summary, **kwargs)
     except Exception as exc:          # a broken record is a failed run, not a crash
         ok, details, metrics = False, 'check error: %r' % exc, {}
-    row.update(passed=bool(ok), details=details, **metrics)
-    with lock:
-        print('%-8s %-9s %-26s seed %-3d %-10s %s  %s' % (
-            row['test'], case['scenario'], case['variant'] or '-', case['seed'], case['mode'],
-            'PASS' if ok else 'FAIL', details), flush=True)
+    row.update(passed=bool(ok), details=details, failure_class='' if ok else 'application',
+               **metrics)
     return row
 
 
@@ -743,6 +926,7 @@ def recheck(opts):
         rows = list(csv.DictReader(f))
     cases = {(c['test'], c['scenario'], c['variant'], str(c['seed']), c['mode']): c
              for c in build_cases(opts.repeat) if not c['kill']}
+    keep = set(ATTEMPT_FIELDS) | {'attempts', 'first_attempt'}
     out = []
     for row in rows:
         row['passed'] = row['passed'] == 'True'
@@ -753,11 +937,142 @@ def recheck(opts):
             with open(os.path.join(run_dir, 'summary.json')) as f:
                 summary = json.load(f)
             ok, details, metrics = case['check'](load_events(run_dir), summary)
-            row = {k: v for k, v in row.items() if k in (
-                'test', 'scenario', 'variant', 'seed', 'mode', 'run_id')}
-            row.update(passed=bool(ok), details=details, **metrics)
+            row = {k: v for k, v in row.items() if k in keep}
+            row.update(passed=bool(ok), failure_class='' if ok else 'application',
+                       details=details + ' (re-evaluated by harness %s)' % HARNESS_VERSION,
+                       **metrics)
         out.append(row)
     write_summary(out, opts)
+
+
+def fmt(value, spec='%.1f'):
+    return '-' if value in (None, '') else spec % float(value)
+
+
+def values_of(rows, key):
+    return [float(r[key]) for r in rows if r.get(key) not in (None, '')]
+
+
+def mean(values):
+    return sum(values) / len(values) if values else None
+
+
+def dispatch_section(rows):
+    """S8: per-policy waits with sample counts and the paired per-seed difference."""
+    s8 = {mode: {str(r['seed']): r for r in rows if r['scenario'] == 'S8' and
+                 r['mode'] == mode and r.get('queue_wait_mean_s') not in (None, '')}
+          for mode in ('predictive', 'reactive')}
+    if not s8['predictive'] or not s8['reactive']:
+        return []
+    lines = ['', '## Predictive vs reactive dispatch (S8, identical seeds)', '',
+             'One episode = one seed. Boarded wait is measured at BOARDED; the all-passenger '
+             'wait also counts abandoned passengers and those still queued at the end of '
+             'the run (right-censored), so it is a lower bound. p50 / p95 are averages of '
+             'the per-episode percentiles.', '',
+             '| Policy | Episodes | Boarded passengers | Boarded wait mean / p50 / p95 (s) | '
+             'All-passenger wait, lower bound, mean / p95 (s) | Arrived | Abandoned | '
+             'Waiting at end | Completion rate |', '|---|---|---|---|---|---|---|---|---|']
+    for mode, runs in s8.items():
+        rs = list(runs.values())
+        lines.append('| %s | %d | %d | %s / %s / %s | %s / %s | %d | %d | %d | %s |' % (
+            mode, len(rs), sum(values_of(rs, 'queue_wait_n')),
+            fmt(mean(values_of(rs, 'queue_wait_mean_s'))),
+            fmt(mean(values_of(rs, 'queue_wait_p50_s'))),
+            fmt(mean(values_of(rs, 'queue_wait_p95_s'))),
+            fmt(mean(values_of(rs, 'wait_all_lower_bound_mean_s'))),
+            fmt(mean(values_of(rs, 'wait_all_lower_bound_p95_s'))),
+            sum(values_of(rs, 'arrived')), sum(values_of(rs, 'abandoned')),
+            sum(values_of(rs, 'waiting_at_end')),
+            fmt(mean(values_of(rs, 'completion_rate')), '%.3f')))
+    seeds = sorted(set(s8['predictive']) & set(s8['reactive']), key=int)
+    lines += ['', 'Paired difference per seed, delta = W_predictive - W_reactive of the '
+              'per-episode mean; 95 % interval from 10000 bootstrap resamples of whole '
+              'episodes (seeds), not of passengers:', '',
+              '| Wait | Seeds | Mean delta (s) | 95 % interval (s) | Seeds where predictive '
+              'is lower |', '|---|---|---|---|---|']
+    for name, key in (('boarded only', 'queue_wait_mean_s'),
+                      ('all passengers (lower bound)', 'wait_all_lower_bound_mean_s')):
+        deltas = [float(s8['predictive'][s][key]) - float(s8['reactive'][s][key])
+                  for s in seeds if s8['predictive'][s].get(key) not in (None, '') and
+                  s8['reactive'][s].get(key) not in (None, '')]
+        if not deltas:
+            continue
+        b = paired_bootstrap(deltas)
+        lines.append('| %s | %d | %+.1f | %+.1f .. %+.1f | %d of %d |' % (
+            name, b['n'], b['mean'], b['ci95_low'], b['ci95_high'],
+            sum(d < 0 for d in deltas), len(deltas)))
+    lines += ['', 'Per-seed delta of the boarded wait (s): ' + ', '.join(
+        'seed %s %+.1f' % (s, float(s8['predictive'][s]['queue_wait_mean_s']) -
+                           float(s8['reactive'][s]['queue_wait_mean_s'])) for s in seeds)]
+    return lines
+
+
+def stop_section(rows):
+    """Three stop times kept apart, each with its clock domain (21.1)."""
+    measures = (
+        ('Zero command after E-stop receipt (STOP_LATCHED)', 'stop_latency_ms', 'ms',
+         'supervisor monotonic clock'),
+        ('Measured standstill after E-stop receipt (STANDSTILL_MEASURED)', 'standstill_ms',
+         'ms', 'supervisor monotonic clock, at receipt of the first pose at standstill'),
+        ('Observer delay of that pose (receipt - stamp)', 'observer_delay_ms', 'ms',
+         'ROS clock'),
+        ('Measured standstill after REROUTE / NO_ROUTE (ROUTE_STOP_MEASURED)',
+         'route_stop_ms', 'ms', 'ROS stamps of the event and of 10 Hz ground truth'),
+        ('Zero output after a process kill (T17)', 'reaction_s', 's',
+         'harness wall clock mapped to the run event clock'),
+    )
+    lines = []
+    for name, key, unit, clock in measures:
+        v = sorted(values_of(rows, key))
+        if v:
+            lines.append('| %s | %d | %.2f / %.2f / %.2f %s | %s |' % (
+                name, len(v), v[0], percentile(v, 50), v[-1], unit, clock))
+    if not lines:
+        return []
+    return ['', '## Stop times', '',
+            'The 0.20 s requirement (16.3) applies to the zero command; standstill is the '
+            'first pose observation at rest after the same trigger and includes the '
+            'deceleration and the observation period. A killed process is detected by '
+            'command age only (0.5 s watchdog plus one 20 Hz cycle).', '',
+            '| Measure | Runs | min / median / max | Clock domain |', '|---|---|---|---|'
+            ] + lines
+
+
+def read_attempts(opts):
+    path = os.path.join(opts.out, 'attempts.csv')
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return list(csv.DictReader(f))
+
+
+def history_section(attempts):
+    """Every recorded matrix invocation, oldest first, with first-attempt totals."""
+    groups = {}
+    for a in attempts:
+        groups.setdefault((a['harness_version'], a['matrix_id'], a['commit']), []).append(a)
+    lines = ['', '## Attempt history (attempts.csv, append-only)', '',
+             '| Harness | Matrix ID | Commit | Attempts | Passed | Infrastructure failures | '
+             'Application failures | Not evaluated | Superseded |',
+             '|---|---|---|---|---|---|---|---|---|']
+    for (version, matrix, commit), rs in groups.items():
+        lines.append('| %s | %s | %s | %d | %d | %d | %d | %d | %d |' % (
+            version, matrix, commit[:12], len(rs), sum(r['passed'] == 'True' for r in rs),
+            sum(r['failure_class'] == 'infrastructure' for r in rs),
+            sum(r['failure_class'] == 'application' for r in rs),
+            sum(r['passed'] == '' for r in rs), sum(bool(r['superseded_by']) for r in rs)))
+    failed = [a for a in attempts if a['passed'] == 'False']
+    if failed:
+        lines += ['', 'Attempts that did not pass:', '',
+                  '| Attempt ID | Test | Scenario / variant | Seed | Class | Run | Superseded '
+                  'by | Details |', '|---|---|---|---|---|---|---|---|']
+        for a in failed:
+            lines.append('| %s | %s | %s | %s | %s | %s | %s | %s |' % (
+                a['attempt_id'], a['test'], a['scenario'] + (
+                    ' / ' + a['variant'] if a['variant'] else ''), a['seed'],
+                a['failure_class'], a['run_id'] or '-', a['superseded_by'] or '-',
+                a['details']))
+    return lines
 
 
 def write_summary(rows, opts):
@@ -766,38 +1081,76 @@ def write_summary(rows, opts):
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
         w.writerows(rows)
+    matrix = rows[0].get('matrix_id', '') if rows else ''
+    commit = rows[0].get('commit', '') if rows else ''
     lines = ['# Verification matrix (T01-T18)', '',
-             'Generated by `ros2 run smart_hub run_test_matrix`; one row per run, details '
-             'in results.csv and evidence/runs/<run_id>/.', '',
-             '| Test | Scenario | Variant | Mode | Runs | Passed | Details (last run) |',
-             '|------|----------|---------|------|------|--------|--------------------|']
+             'Generated by `ros2 run smart_hub run_test_matrix` (harness %s), matrix %s, '
+             'source commit %s. One row per case below; results.csv has the last attempt '
+             'of every case, attempts.csv every attempt ever launched, and '
+             'evidence/runs/<run_id>/ the run records.' % (HARNESS_VERSION, matrix, commit),
+             '',
+             '| Test | Scenario | Variant | Mode | Cases | Passed on first attempt | Passed '
+             '| Details (last case) |', '|---|---|---|---|---|---|---|---|']
     groups = {}
     for r in rows:
         groups.setdefault((r['test'], r['scenario'], r['variant'], r['mode']), []).append(r)
     for (test, sc, var, mode), rs in groups.items():
-        lines.append('| %s | %s | %s | %s | %d | %d/%d | %s |' % (
-            test, sc, var or '-', mode, len(rs), sum(r['passed'] for r in rs), len(rs),
-            rs[-1]['details']))
-    pred = [r['queue_wait_mean_s'] for r in rows if r['scenario'] == 'S8' and
-            r['mode'] == 'predictive' and r.get('queue_wait_mean_s') is not None]
-    reac = [r['queue_wait_mean_s'] for r in rows if r['scenario'] == 'S8' and
-            r['mode'] == 'reactive' and r.get('queue_wait_mean_s') is not None]
-    if pred and reac:
-        lines += ['', '## Predictive vs reactive dispatch (S8, identical seeds)', '',
-                  '| Policy | Runs | Mean queue wait (s) |', '|---|---|---|',
-                  '| predictive | %d | %.1f |' % (len(pred), sum(pred) / len(pred)),
-                  '| reactive | %d | %.1f |' % (len(reac), sum(reac) / len(reac))]
-    passed = sum(r['passed'] for r in rows)
-    lines += ['', '**Total: %d/%d runs passed.**' % (passed, len(rows))]
+        lines.append('| %s | %s | %s | %s | %d | %d/%d | %d/%d | %s |' % (
+            test, sc, var or '-', mode, len(rs),
+            sum(r.get('first_attempt') == 'pass' for r in rs), len(rs),
+            sum(r['passed'] for r in rs), len(rs), rs[-1]['details']))
+    n = len(rows)
+    first_pass = sum(r.get('first_attempt') == 'pass' for r in rows)
+    lines += ['', '## Totals', '',
+              '- Cases: %d.' % n,
+              '- Passed on the first attempt: %d/%d.' % (first_pass, n),
+              '- First attempt failed for infrastructure reasons (run could not be judged): '
+              '%d; for application reasons (criterion failed on a complete run): %d.' % (
+                  sum(r.get('first_attempt') == 'infrastructure' for r in rows),
+                  sum(r.get('first_attempt') == 'application' for r in rows)),
+              '- Passed after the single permitted re-run of an infrastructure failure '
+              '(eventual success): %d/%d.' % (sum(r['passed'] for r in rows), n),
+              '- A run that fails the graph audit below is an infrastructure failure.']
+    lines += rate_section(rows, opts.runs_dir) + dispatch_section(rows) + stop_section(rows)
+    lines += history_section(read_attempts(opts))
+    lines += ['', '## Notes', '',
+              '- Verified outside this launch matrix: T03 (S2 prediction) offline on '
+              'held-out episodes (evidence/demand/evaluation.json, test_demand_model); the '
+              'T11 / T12 cost oracle in test_route_oracle and test_route_engine.',
+              '- Crossing criteria use the strict ground-truth measures of metrics_logger '
+              '(no grace interval): contact, token overlap, robot / bus together with '
+              'another robot / bus or a car in C, and entry without the grant or onto a '
+              'pedestrian must be zero; a pedestrian stepping into a granted crossing must '
+              'be answered by a measured standstill within %d ms.' % PEDESTRIAN_RESPONSE_MS,
+              '- A REROUTE / NO_ROUTE must be followed by a measured standstill within '
+              '%d ms (declared budget; ground truth is sampled at 10 Hz).' % ROUTE_STOP_MS]
     with open(os.path.join(opts.out, 'summary.md'), 'w') as f:
         f.write('\n'.join(lines) + '\n')
-    print('\n'.join(lines[-1:]))
+    print('first attempt %d/%d, eventual %d/%d' % (
+        first_pass, n, sum(r['passed'] for r in rows), n))
+
+
+def source_commit(given):
+    """Return (commit, dirty) of the tree under test: --commit, the environment, or git."""
+    if given:
+        return given, False
+    if os.environ.get('SMART_HUB_COMMIT'):
+        return os.environ['SMART_HUB_COMMIT'], os.environ.get('SMART_HUB_DIRTY', '') == '1'
+    try:
+        commit = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True,
+                                timeout=5).stdout.strip()
+        dirty = subprocess.run(['git', 'status', '--porcelain', '--untracked-files=no'],
+                               capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return 'unknown', False
+    return commit or 'unknown', bool(dirty)
 
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--out', default=os.path.join('evidence', 'test_matrix'))
-    parser.add_argument('--runs-dir', default=os.path.join('evidence', 'runs'))
+    parser.add_argument('--runs-dir', default=os.path.join('evidence', 'runs'),
+                        help='where metrics_logger writes (its output_dir parameter)')
     parser.add_argument('--parallel', type=int, default=4)
     parser.add_argument('--repeat', type=int, default=10)
     parser.add_argument('--cases', default='', help='regex on test id, e.g. "T13|T05"')
@@ -805,12 +1158,17 @@ def main(args=None):
     parser.add_argument('--ui-port-base', type=int, default=9000)
     parser.add_argument('--tag-base', type=int, default=int(time.time()) % 900 * 100,
                         help='run tags are unique per invocation')
+    parser.add_argument('--commit', default='',
+                        help='source commit of an installed copy without a git checkout')
     parser.add_argument('--recheck', action='store_true',
                         help='re-evaluate criteria on the recorded runs in <out>/results.csv')
     opts, _ = parser.parse_known_args(args)
     if opts.recheck:
         recheck(opts)
         return
+    opts.commit, opts.dirty = source_commit(opts.commit)
+    opts.commit_label = opts.commit + ('+dirty' if opts.dirty else '')
+    opts.matrix_id = time.strftime('M%Y%m%d-%H%M%S', time.gmtime())
     os.makedirs(os.path.join(opts.out, 'logs'), exist_ok=True)
     cases = [c for c in build_cases(opts.repeat) if re.search(opts.cases, c['test'])]
     # Longest first keeps the pool busy until the end.

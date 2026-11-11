@@ -64,6 +64,7 @@ class HubUi(Node):
         self.declare_parameter('host', '0.0.0.0')
         self.declare_parameter('port', 8080)
         self.declare_parameter('web_dir', '')
+        self.declare_parameter('mode', 'sim')       # sim | hardware
         self.declare_parameter('congestion_density_threshold', 0.70)
         check_parameters(self)
 
@@ -100,7 +101,10 @@ class HubUi(Node):
 
         self.estop_pub = self.create_publisher(Bool, '/hub/estop', R1T)
         self.barrier_pub = self.create_publisher(Bool, '/parking/barrier_request', R1)
-        self.inject_pub = self.create_publisher(String, '/sim/inject', R10)
+        # Simulator injection is a test-only input; it does not exist in hardware mode.
+        self.sim_mode = self.get_parameter('mode').value == 'sim'
+        self.inject_pub = self.create_publisher(String, '/sim/inject', R10) \
+            if self.sim_mode else None
         self.clients_ = {
             'reset': self.create_client(ResetScenario, '/scenario/reset'),
             'clear_stop': self.create_client(ClearSafetyStop, '/safety/clear_stop'),
@@ -238,7 +242,7 @@ class HubUi(Node):
             return self.navigate_client.server_is_ready()
         publishers = {'estop': self.estop_pub, 'barrier': self.barrier_pub,
                       'sim': self.inject_pub, 'sim_route': self.inject_pub}
-        if kind in publishers:
+        if publishers.get(kind) is not None:
             return publishers[kind].get_subscription_count() > 0
         return True
 
@@ -289,6 +293,8 @@ class HubUi(Node):
         elif kind == 'barrier':
             self.barrier_pub.publish(Bool(data=bool(cmd['open'])))
             self.log('UI_BARRIER', 'open' if cmd['open'] else 'close')
+        elif kind in ('sim', 'sim_route') and not self.sim_mode:
+            self.log('UI_SIM_REJECTED', 'simulator injection is disabled in hardware mode')
         elif kind == 'sim':
             self.inject(cmd['event'])
         elif kind == 'sim_route':
