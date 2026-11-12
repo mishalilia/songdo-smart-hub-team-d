@@ -309,7 +309,7 @@ only, frozen in `ablation_plan.json` and committed before the single test evalua
 `evaluate_s1_video --split … --ablation` reproduces `ablation.json`; the confirmation (0.4 s),
 occlusion (0.5 s) and association (0.5 m) rules of the tracker are unchanged.
 
-**Test matrix** (`run_test_matrix`, harness 2.1). Every attempt gets an ID
+**Test matrix** (`run_test_matrix`, harness 2.2). Every attempt gets an ID
 `<matrix>-<case>-<attempt>` and a row in `attempts.csv`, which is append-only across matrices
 and harness versions. A failure is *infrastructure* (no run record, startup gate incomplete,
 kill target missing, unreadable summary, graph audit mismatch) or *application* (the
@@ -344,9 +344,11 @@ Frozen revision `0523e7d`, matrix `M20261112-054841` (harness 2.1, 114 cases, th
 in parallel on one 8-CPU machine; `evidence/test_matrix/summary.md`): **114/114 passed on the
 first attempt**, no re-runs. Every run passed the graph audit (14 nodes, one publisher and the
 specified QoS per topic, lowest measured rate 90 % of nominal). `colcon test` on the same
-revision: 131 tests, 0 failures. Commits after `0523e7d` change only `README.md`,
-`evidence/`, `LICENSE` / `NOTICE` and the dependency list of `package.xml` (OpenCV, already
-used); no node or test code.
+revision: 131 tests, 0 failures. Commits after `0523e7d` change no node code: `README.md`,
+`evidence/`, `LICENSE` / `NOTICE`, the dependency list of `package.xml` (OpenCV, already used)
+and the evaluator — harness 2.2 splits robot/bus + pedestrian episodes in C by cause and was
+re-applied to the recorded runs of this matrix (`results.csv` / `summary.md`; no run was
+repeated, the 11 process-kill cases keep their original evaluation).
 
 Repeated runs under the final criteria (every attempt is in `attempts.csv`):
 
@@ -379,7 +381,7 @@ matrices: `evidence/test_matrix/runs-<matrix>.tar.gz`.
 | S5 congestion | precision 1.00, recall 1.00; 0 false labels in 10 free-flow runs |
 | S6 routing on the live graph | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: zero command, standstill measured after 93 ms and held |
 | S7 robot escort (10 runs) | all arrived, arrival error < 0.10 m; in every run the active edge Cs–J is blocked and the route actually changes (R–W–Cn–Cs–J–D → … Cn–B–U–E–J–D); standstill 44–128 ms after the replan decision (budget 500 ms) |
-| S8 integrated hub (10 + 10 runs) | 0 contacts, 0 unauthorized entries, 0 token overlaps, 0 robot/bus–robot/bus or robot/bus–car occupancy. In each predictive run the scripted pedestrian steps into C while the bus is inside under its grant (10 episodes); the bus is at measured standstill 100–200 ms later (budget 1000 ms), none unresolved. Reactive runs: 0 episodes (the bus passes C earlier) |
+| S8 integrated hub (10 + 10 runs) | **Hub-caused incompatible occupancy of C: 0** — 0 contacts, 0 unauthorized entries (no grant, onto a pedestrian, car against owner), 0 token overlaps, 0 robot/bus–robot/bus or robot/bus–car occupancy, 0 robot/bus + pedestrian episodes caused by the hub. Pedestrian intrusions (the scripted pedestrian appears inside C at 80 s while the bus already owns and occupies it, the 15.1 stimulus): 10 in the predictive runs, 0 in the reactive runs (the bus has passed C earlier); every one answered by a measured standstill 100–200 ms later (budget 1000 ms), none unresolved |
 | S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | zero command 0.26–0.80 ms after e-stop receipt (requirement 200 ms); measured standstill 42–49 ms, observer delay 1.0–3.2 ms; every fault stops or aborts safely |
 | Node kills (10 runs + planner) | zero output 0.47–0.59 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
 | Dispatch service (re-arm after a served mission) | S8: 120 boarded per policy in 10 episodes (midterm: 40), completion rate 0.67 / 0.66 (midterm 0.24); all-passenger wait lower bound 140 s (midterm 165 s) |
@@ -399,8 +401,13 @@ rate S2 0.55 ± 0.04 / 0.57 ± 0.06, S8 0.67 ± 0.05 / 0.66 ± 0.03 (10 each). I
 values are in `results.csv`.
 
 The scripted pedestrian of S8 (80–85 s) is the stimulus of 15.1, "existing movement stops
-safely as needed": when the bus is already inside C it is recorded as strict occupancy and
-answered by a measured standstill (above); no new entry is granted while a pedestrian is in C.
+safely as needed": the simulator places it directly inside C at 80 s, so no controller can
+prevent it. Harness 2.2 classifies every robot/bus + pedestrian episode from the raw trace
+(`crossing_occupancy.csv`): a *pedestrian intrusion* when the robot / bus already owned and
+occupied C and no pedestrian was inside in the sample before, otherwise *hub-caused*.
+Hub-caused episodes must be zero (they are); intrusions stay in the strict-occupancy count,
+are not erased by any grace interval, and are judged by the measured standstill. No new entry
+is granted while a pedestrian is in C.
 
 Not covered: a surveyed calibration of a real queue scene (the PETS mapping is an evaluation
 mapping; surveyed floor points need a physical site) and measured energy (the energy model is

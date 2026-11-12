@@ -46,7 +46,12 @@ from smart_hub.metrics import parse_latency_ms, percentile
 # 2.1  launches use the UDP transport of Fast DDS. In matrix M20261111-233205 (2.0) the
 #      shared-memory segments of earlier runs filled /dev/shm; nodes then started with mixed
 #      transports and in one S3 run route_planner received no /traffic/edges.
-HARNESS_VERSION = '2.1'
+# 2.2  robot/bus + pedestrian episodes in C split by cause from the raw occupancy trace:
+#      a pedestrian intruding into a crossing already granted to and occupied by the robot /
+#      bus (the 15.1 stimulus, judged by the response) versus a robot / bus entering onto a
+#      pedestrian or without a grant (hub-caused, must be zero). Matrix M20261112-054841 was
+#      re-evaluated with it; no runs were repeated.
+HARNESS_VERSION = '2.2'
 TRANSPORT_ENV = {'FASTDDS_BUILTIN_TRANSPORTS': 'UDPv4'}    # kept if already set by the caller
 MAX_ATTEMPTS = 2           # the second one only after an infrastructure failure
 RECORD_FILES = ('events.csv', 'summary.json', 'params.json', 'crossing_occupancy.csv',
@@ -111,6 +116,48 @@ def number(text, key):
     return float(m.group(1)) if m else None
 
 
+def controlled(agent_id):
+    return agent_id.startswith(('robot', 'bus'))
+
+
+def occupancy_causes(run_dir):
+    """
+    Classify every robot / bus + pedestrian episode of the raw C trace by cause.
+
+    An episode is a pedestrian intrusion when, in the sample before it starts, the same robot /
+    bus is already inside C, owns it and no pedestrian is inside: the pedestrian stepped into a
+    granted, occupied crossing. Every other start (robot / bus entering while a pedestrian is
+    inside, or inside without owning C) is hub-caused.
+    """
+    out = {'pedestrian_intrusions': 0, 'hub_caused': 0}
+    path = os.path.join(run_dir, 'crossing_occupancy.csv')
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        rows = list(csv.DictReader(f))
+    prev = None
+    for row in rows:
+        active = 'controlled_pedestrian' in row['occupancy_classes']
+        was = prev is not None and 'controlled_pedestrian' in prev['occupancy_classes']
+        if active and not was:
+            inside = {a for a in row['agents_in_c'].split() if controlled(a)}
+            before = set(prev['agents_in_c'].split()) if prev else set()
+            if prev and inside <= before and int(prev['pedestrians_in_c'] or 0) == 0 and \
+                    row['owner'] in inside:
+                out['pedestrian_intrusions'] += 1
+            else:
+                out['hub_caused'] += 1
+        prev = row
+    return out
+
+
+def add_occupancy_causes(summary, run_dir):
+    causes = occupancy_causes(run_dir)
+    if causes is not None:
+        summary['crossing']['pedestrian_episode_causes'] = causes
+    return summary
+
+
 def safety_problems(summary):
     """
     Return the violated safety measures of a run (empty list: none).
@@ -119,7 +166,8 @@ def safety_problems(summary):
     and entry of a robot / bus without the grant or onto a pedestrian must all be zero.
     A pedestrian may step into a granted crossing (pedestrians have priority), so that
     occupancy is reported as it is and the criterion is the response: every robot / bus
-    inside C measured at standstill within PEDESTRIAN_RESPONSE_MS. Car-only occupancy is
+    inside C measured at standstill within PEDESTRIAN_RESPONSE_MS. A robot / bus + pedestrian
+    episode that the hub caused (occupancy_causes) must be zero. Car-only occupancy is
     uncontrolled background traffic: recorded, not a criterion.
     """
     x = summary['crossing']
@@ -132,6 +180,8 @@ def safety_problems(summary):
         'robot/bus+car in C': by_class['controlled_car']['episodes'],
         'entry without grant': x['unauthorized_entries']['no_grant'],
         'entry onto pedestrian': x['unauthorized_entries']['pedestrian_present'],
+        'hub-caused robot/bus+pedestrian in C':
+            x.get('pedestrian_episode_causes', {}).get('hub_caused', 0),
         'pedestrian response unresolved': x['pedestrian_response_unresolved'],
         'pedestrian response > %d ms' % PEDESTRIAN_RESPONSE_MS:
             int(response.get('max', 0.0) > PEDESTRIAN_RESPONSE_MS),
@@ -207,9 +257,15 @@ def standstill(ev, after):
 def crossing_text(summary):
     x = summary['crossing']
     by_class = x['strict_occupancy']['by_class']
-    return 'strict occupancy %d (robot/bus+ped %d, car-only %d), unauthorized %d, ' \
+    causes = x.get('pedestrian_episode_causes')
+    ped = by_class['controlled_pedestrian']['episodes']
+    split = '' if causes is None else ': pedestrian intrusion into granted C %d, hub-caused %d' % (
+        causes['pedestrian_intrusions'], causes['hub_caused'])
+    response = x['pedestrian_response_ms']
+    stop = ' (stopped in %.0f ms)' % response['max'] if response.get('n') else ''
+    return 'strict occupancy %d (robot/bus+ped %d%s%s, car-only %d), unauthorized %d, ' \
         'token overlap %d' % (
-            x['strict_occupancy']['episodes'], by_class['controlled_pedestrian']['episodes'],
+            x['strict_occupancy']['episodes'], ped, split, stop,
             by_class['car_car']['episodes'] + by_class['car_pedestrian']['episodes'],
             sum(x['unauthorized_entries'].values()), x['token_overlaps'])
 
@@ -923,7 +979,7 @@ def _run_case(case, index, opts, lock, attempt):
     time.sleep(1.0)                       # let metrics_logger write its final summary
     try:
         with open(os.path.join(run_dir, 'summary.json')) as f:
-            summary = json.load(f)
+            summary = add_occupancy_causes(json.load(f), run_dir)
     except (OSError, ValueError) as exc:
         return dict(row, details='no readable summary.json: %r' % exc)
     graph = graph_problems(summary, exempt=(case['kill'][1],) if case['kill'] else ())
@@ -970,7 +1026,7 @@ def recheck(opts):
         run_dir = os.path.join(opts.runs_dir, row['run_id'])
         if case and row['run_id'] and os.path.isdir(run_dir):
             with open(os.path.join(run_dir, 'summary.json')) as f:
-                summary = json.load(f)
+                summary = add_occupancy_causes(json.load(f), run_dir)
             ok, details, metrics = case['check'](load_events(run_dir), summary)
             row = {k: v for k, v in row.items() if k in keep}
             row.update(passed=bool(ok), failure_class='' if ok else 'application',
@@ -1138,9 +1194,14 @@ def write_summary(rows, opts):
                  HARNESS_VERSION, matrix, commit,
                  ', '.join('%s=%s' % (k, os.environ.get(k, v))
                            for k, v in TRANSPORT_ENV.items())),
-             '',
-             '| Test | Scenario | Variant | Mode | Cases | Passed on first attempt | Passed '
-             '| Details (last case) |', '|---|---|---|---|---|---|---|---|']
+             '']
+    if getattr(opts, 'recheck', False):
+        lines += ['The runs were launched by the harness version recorded for them in '
+                  'attempts.csv; the criteria of every case except the process kills were '
+                  're-evaluated on the recorded runs by harness %s. No run was repeated.' %
+                  HARNESS_VERSION, '']
+    lines += ['| Test | Scenario | Variant | Mode | Cases | Passed on first attempt | Passed '
+              '| Details (last case) |', '|---|---|---|---|---|---|---|---|']
     groups = {}
     for r in rows:
         groups.setdefault((r['test'], r['scenario'], r['variant'], r['mode']), []).append(r)
@@ -1172,6 +1233,12 @@ def write_summary(rows, opts):
               'another robot / bus or a car in C, and entry without the grant or onto a '
               'pedestrian must be zero; a pedestrian stepping into a granted crossing must '
               'be answered by a measured standstill within %d ms.' % PEDESTRIAN_RESPONSE_MS,
+              '- Every robot / bus + pedestrian episode in C is classified from the raw trace '
+              '(crossing_occupancy.csv): a pedestrian intrusion when the pedestrian appeared '
+              'in a crossing that the robot / bus already owned and occupied (the 80-85 s '
+              'stimulus of S8, assignment 15.1: "existing movement stops safely as needed"), '
+              'otherwise hub-caused. Hub-caused episodes must be zero; intrusions stay in the '
+              'strict-occupancy count and are judged by the measured response.',
               '- A REROUTE / NO_ROUTE must be followed by a measured standstill within '
               '%d ms (declared budget; ground truth is sampled at 10 Hz).' % ROUTE_STOP_MS]
     with open(os.path.join(opts.out, 'summary.md'), 'w') as f:

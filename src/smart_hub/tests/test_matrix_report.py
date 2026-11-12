@@ -70,6 +70,29 @@ def test_on_change_topics_have_no_maximum_rate():
                                        '/robot/odom at 26.00 Hz, nominal 20 Hz']
 
 
+def write_trace(tmp_path, rows):
+    with open(tmp_path / 'crossing_occupancy.csv', 'w') as f:
+        f.write('t_sec,agents_in_c,pedestrians_in_c,owner,token,occupancy_classes\n')
+        for r in rows:
+            f.write(r + '\n')
+    return str(tmp_path)
+
+
+def test_pedestrian_intrusion_is_told_apart_from_a_hub_caused_entry(tmp_path):
+    intrusion = write_trace(tmp_path, [
+        '68.7,,0,bus1,tok,', '78.1,bus1,0,bus1,tok,',
+        '80.1,bus1,1,bus1,tok,controlled_pedestrian', '85.1,bus1,0,bus1,tok,'])
+    assert test_matrix.occupancy_causes(intrusion) == {'pedestrian_intrusions': 1,
+                                                       'hub_caused': 0}
+    entry = write_trace(tmp_path, [
+        '10.0,,1,,,', '11.0,robot1,1,robot1,tok,controlled_pedestrian'])
+    assert test_matrix.occupancy_causes(entry) == {'pedestrian_intrusions': 0,
+                                                   'hub_caused': 1}
+    no_grant = write_trace(tmp_path, [
+        '10.0,bus1,0,,,', '11.0,bus1,1,,,controlled_pedestrian'])
+    assert test_matrix.occupancy_causes(no_grant)['hub_caused'] == 1
+
+
 def test_run_stays_up_for_the_observation_window_after_a_late_kill():
     nominal = 100.0 + test_matrix.STARTUP_SEC + 17.0
     assert test_matrix.run_end(100.0, 17.0) == nominal
