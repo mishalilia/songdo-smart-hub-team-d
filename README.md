@@ -110,9 +110,10 @@ for the mission controllers: the assessed path is S7 / S8, where `robot_manager`
 Every run writes `evidence/runs/<run_id>/` with `events.csv`, `latency.csv`, `energy.csv`,
 `crossing_occupancy.csv` (ground-truth occupant set of C at every change), `params.json` and
 `summary.json`: run ID, scenario, seed, metrics, and the provenance of the run — source
-commit and dirty flag (`SMART_HUB_COMMIT` / `SMART_HUB_DIRTY`, else `git`), SHA-256 of the
-configuration and of every source, scenario and model file, evaluator revision, ROS
-distribution, RMW, machine — plus a graph audit taken 2 s into the run (discovered nodes,
+commit and dirty flag (`SMART_HUB_COMMIT` / `SMART_HUB_DIRTY`, else `git`; the commit
+identifies the source code), SHA-256 of `hub.yaml`, `map.yaml`, the demand model and the
+scenario file, evaluator revision, ROS distribution, RMW, machine (CPU model, RAM, OS,
+Python) — plus a graph audit taken 2 s into the run (discovered nodes,
 publisher QoS and subscribers of the section 5 topics, measured rates).
 In simulation mode the simulator plays the devices and applies the final motion commands;
 `actuator_bridge` is the hardware layer. `/sim/inject` (`std_msgs/String`, JSON event as in
@@ -211,7 +212,10 @@ ros2 run smart_hub train_demand_model --episodes 30
 # simulator-core compute vs. placed load -> evidence/scalability.csv
 ros2 run smart_hub scalability_benchmark
 
-# S1 on a recorded video (camera path): live, and offline against manual counts
+# S1 on a recorded video (camera path): live, and offline against manual counts.
+# vtest.avi is not in the repository (see NOTICE); get it from OpenCV's samples and check it:
+curl -L -o vtest.avi https://github.com/opencv/opencv/raw/4.x/samples/data/vtest.avi
+sha256sum vtest.avi   # 45cddc9490be69345cbdab64ca583be65987e864ca408038e648db99e10516cf
 ros2 launch smart_hub s1_video.launch.py video:=/path/to/vtest.avi
 ros2 run smart_hub evaluate_s1_video --video /path/to/vtest.avi --truth evidence/s1_video/truth.csv \
     --split evidence/s1_video/split.json [--ablation]      # YOLOX vs HOG on frozen labels
@@ -340,8 +344,9 @@ Frozen revision `0523e7d`, matrix `M20261112-054841` (harness 2.1, 114 cases, th
 in parallel on one 8-CPU machine; `evidence/test_matrix/summary.md`): **114/114 passed on the
 first attempt**, no re-runs. Every run passed the graph audit (14 nodes, one publisher and the
 specified QoS per topic, lowest measured rate 90 % of nominal). `colcon test` on the same
-revision: 131 tests, 0 failures. Commits after `0523e7d` change only `README.md` and
-`evidence/`.
+revision: 131 tests, 0 failures. Commits after `0523e7d` change only `README.md`,
+`evidence/`, `LICENSE` / `NOTICE` and the dependency list of `package.xml` (OpenCV, already
+used); no node or test code.
 
 Repeated runs under the final criteria (every attempt is in `attempts.csv`):
 
@@ -383,6 +388,19 @@ matrices: `evidence/test_matrix/runs-<matrix>.tar.gz`.
 | Energy (analytical model, not measured; equal duration, equal service: 120 boarded per policy) | S8 (299 s): bus 4389 / 4375 J, robot 1567 / 1565 J per run (predictive / reactive); bus + robot per boarded passenger 496 / 495 J (midterm, one trip: 1363 J). S2 (357 s): 580 / 589 J per boarded passenger |
 | Whole-graph load (`evidence/graph_load.csv`, full launch alone) | up to the most the map holds (153 pedestrians, 23 cars): all 14 nodes together 186 → 234 % of one core, busiest node `scenario_runner` ≤ 46 %; receipt age p95 ≤ 13 ms for `/hub/vehicles`, ≤ 10 ms for `/hub/safety`, ≤ 29 ms for `/camera/image_raw`; graph audit passed at every level except one start-up sample (`/hub/demand` not yet discovered 2 s into the `light` run) |
 | Simulator core (`evidence/scalability.csv`, world step only) | fully placed up to 15 cars + 60 pedestrians: step p95 0.41 ms, p99 0.45 ms. 100 cars requested: 23 placed — not a 100-car result |
+
+Repeated runs, mean ± standard deviation (n runs): S3 position error 0.107 ± 0.019 m, yaw
+error −0.003 ± 0.056 rad, ETA error at 5 m −0.85 ± 0.24 s (10); S7 arrival error
+0.097 ± 0.003 m, standstill after the replan decision 81 ± 24 ms (10); zero command after
+e-stop receipt 0.42 ± 0.25 ms, measured standstill 45.4 ± 2.6 ms (6); zero output after a
+process kill 0.52 ± 0.04 s (10). All-passenger wait (lower bound) per episode: S2 predictive
+129 ± 10 s, reactive 134 ± 6 s; S8 predictive 140 ± 11 s, reactive 141 ± 9 s; completion
+rate S2 0.55 ± 0.04 / 0.57 ± 0.06, S8 0.67 ± 0.05 / 0.66 ± 0.03 (10 each). Individual run
+values are in `results.csv`.
+
+The scripted pedestrian of S8 (80–85 s) is the stimulus of 15.1, "existing movement stops
+safely as needed": when the bus is already inside C it is recorded as strict occupancy and
+answered by a measured standstill (above); no new entry is granted while a pedestrian is in C.
 
 Not covered: a surveyed calibration of a real queue scene (the PETS mapping is an evaluation
 mapping; surveyed floor points need a physical site) and measured energy (the energy model is
