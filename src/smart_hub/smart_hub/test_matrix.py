@@ -233,6 +233,19 @@ def check_s1(ev, summary):
         stable, delay if delay is not None else -1), {'freeze_to_unknown_s': delay}
 
 
+def wait_metrics(summary):
+    """Passenger-wait columns of results.csv (boarded and censored all-passenger waits)."""
+    queue = summary['queue']
+    wait, everyone = queue['wait_boarded_sec'], queue['wait_all_lower_bound_sec']
+    return {'queue_wait_mean_s': wait.get('mean'), 'queue_wait_p50_s': wait.get('p50'),
+            'queue_wait_p95_s': wait.get('p95'), 'queue_wait_n': wait.get('n'),
+            'wait_all_lower_bound_mean_s': everyone.get('mean'),
+            'wait_all_lower_bound_p95_s': everyone.get('p95'), 'arrived': queue['arrived'],
+            'boarded': queue['boarded'], 'abandoned': queue['abandoned'],
+            'waiting_at_end': queue['waiting_at_end'],
+            'completion_rate': queue['completion_rate']}
+
+
 def check_s2_dispatch(ev, summary):
     outstanding, overlaps = 0, 0
     reasons = []
@@ -244,7 +257,12 @@ def check_s2_dispatch(ev, summary):
         elif e['event'] == 'DISPATCH_RESULT':
             outstanding = max(0, outstanding - 1)
     ok = reasons and overlaps == 0 and not all_of(ev, 'DISPATCH_REJECTED') and safety_ok(summary)
-    return ok, 'dispatches %s, overlapping %d' % (reasons, overlaps), {'dispatches': len(reasons)}
+    queue = summary['queue']
+    wait = queue['wait_boarded_sec']
+    return ok, 'dispatches %s, overlapping %d; boarded %d of %d arrived, boarded wait mean ' \
+        '%s s' % (reasons, overlaps, queue['boarded'], queue['arrived'],
+                  '%.1f' % wait['mean'] if wait.get('n') else '-'), \
+        dict(wait_metrics(summary), dispatches=len(reasons))
 
 
 def check_dock_ok(ev, summary, eta_required=True):
@@ -463,14 +481,7 @@ def check_s8(ev, summary):
             '%.1f' % everyone['mean'] if everyone.get('n') else '-')
     if problems:
         detail += '; FAILED: ' + '; '.join(problems)
-    return not problems, detail, {
-        'queue_wait_mean_s': wait.get('mean'), 'queue_wait_p50_s': wait.get('p50'),
-        'queue_wait_p95_s': wait.get('p95'), 'queue_wait_n': wait.get('n'),
-        'wait_all_lower_bound_mean_s': everyone.get('mean'),
-        'wait_all_lower_bound_p95_s': everyone.get('p95'), 'arrived': queue['arrived'],
-        'boarded': queue['boarded'], 'abandoned': queue['abandoned'],
-        'waiting_at_end': queue['waiting_at_end'],
-        'completion_rate': queue['completion_rate']}
+    return not problems, detail, wait_metrics(summary)
 
 
 def check_s9(ev, summary):
@@ -716,7 +727,10 @@ def build_cases(repeat):
                           'record': record and i == 0})
     seeds = tuple(range(1, repeat + 1))
     add('T01/T02', 'S1', check_s1, 45)
-    add('T04', 'S2', check_s2_dispatch, 200)
+    # S2 is the rising-demand episode of 9.4 (2 -> 6 -> 10 arrivals per minute), S8 the
+    # step surge; both policies run on the same seeds for the paired comparison.
+    add('T04', 'S2', check_s2_dispatch, 240, seeds=seeds, mode='predictive')
+    add('T04', 'S2', check_s2_dispatch, 240, seeds=seeds, mode='reactive')
     add('T05', 'S3', check_dock_ok, 75, seeds=seeds, record=True)
     add('T05', 'S3', check_dock_disturbed, 85, variant='pedestrian_before_entry')
     add('T05', 'S3', check_dock_disturbed, 100, variant='blocked_bay')
@@ -978,14 +992,26 @@ def mean(values):
     return sum(values) / len(values) if values else None
 
 
+DISPATCH_SCENARIOS = (('S2', 'rising demand: 2, 6, then 10 arrivals per minute'),
+                      ('S8', 'step surge: seven people at 60 s, then 6 per minute'))
+
+
 def dispatch_section(rows):
-    """S8: per-policy waits with sample counts and the paired per-seed difference."""
-    s8 = {mode: {str(r['seed']): r for r in rows if r['scenario'] == 'S8' and
-                 r['mode'] == mode and r.get('queue_wait_mean_s') not in (None, '')}
-          for mode in ('predictive', 'reactive')}
-    if not s8['predictive'] or not s8['reactive']:
+    """Per scenario and policy: waits with sample counts and the paired per-seed difference."""
+    lines = []
+    for scenario, label in DISPATCH_SCENARIOS:
+        lines += dispatch_scenario_section(rows, scenario, label)
+    return lines
+
+
+def dispatch_scenario_section(rows, scenario, label):
+    by_mode = {mode: {str(r['seed']): r for r in rows if r['scenario'] == scenario and
+                      r['mode'] == mode and r.get('queue_wait_mean_s') not in (None, '')}
+               for mode in ('predictive', 'reactive')}
+    if not by_mode['predictive'] or not by_mode['reactive']:
         return []
-    lines = ['', '## Predictive vs reactive dispatch (S8, identical seeds)', '',
+    lines = ['', '## Predictive vs reactive dispatch (%s, %s; identical seeds)' % (
+             scenario, label), '',
              'One episode = one seed. Boarded wait is measured at BOARDED; the all-passenger '
              'wait also counts abandoned passengers and those still queued at the end of '
              'the run (right-censored), so it is a lower bound. p50 / p95 are averages of '
@@ -993,7 +1019,7 @@ def dispatch_section(rows):
              '| Policy | Episodes | Boarded passengers | Boarded wait mean / p50 / p95 (s) | '
              'All-passenger wait, lower bound, mean / p95 (s) | Arrived | Abandoned | '
              'Waiting at end | Completion rate |', '|---|---|---|---|---|---|---|---|---|']
-    for mode, runs in s8.items():
+    for mode, runs in by_mode.items():
         rs = list(runs.values())
         lines.append('| %s | %d | %d | %s / %s / %s | %s / %s | %d | %d | %d | %s |' % (
             mode, len(rs), sum(values_of(rs, 'queue_wait_n')),
@@ -1005,7 +1031,7 @@ def dispatch_section(rows):
             sum(values_of(rs, 'arrived')), sum(values_of(rs, 'abandoned')),
             sum(values_of(rs, 'waiting_at_end')),
             fmt(mean(values_of(rs, 'completion_rate')), '%.3f')))
-    seeds = sorted(set(s8['predictive']) & set(s8['reactive']), key=int)
+    seeds = sorted(set(by_mode['predictive']) & set(by_mode['reactive']), key=int)
     lines += ['', 'Paired difference per seed, delta = W_predictive - W_reactive of the '
               'per-episode mean; 95 % interval from 10000 bootstrap resamples of whole '
               'episodes (seeds), not of passengers:', '',
@@ -1013,9 +1039,9 @@ def dispatch_section(rows):
               'is lower |', '|---|---|---|---|---|']
     for name, key in (('boarded only', 'queue_wait_mean_s'),
                       ('all passengers (lower bound)', 'wait_all_lower_bound_mean_s')):
-        deltas = [float(s8['predictive'][s][key]) - float(s8['reactive'][s][key])
-                  for s in seeds if s8['predictive'][s].get(key) not in (None, '') and
-                  s8['reactive'][s].get(key) not in (None, '')]
+        deltas = [float(by_mode['predictive'][s][key]) - float(by_mode['reactive'][s][key])
+                  for s in seeds if by_mode['predictive'][s].get(key) not in (None, '') and
+                  by_mode['reactive'][s].get(key) not in (None, '')]
         if not deltas:
             continue
         b = paired_bootstrap(deltas)
@@ -1023,8 +1049,8 @@ def dispatch_section(rows):
             name, b['n'], b['mean'], b['ci95_low'], b['ci95_high'],
             sum(d < 0 for d in deltas), len(deltas)))
     lines += ['', 'Per-seed delta of the boarded wait (s): ' + ', '.join(
-        'seed %s %+.1f' % (s, float(s8['predictive'][s]['queue_wait_mean_s']) -
-                           float(s8['reactive'][s]['queue_wait_mean_s'])) for s in seeds)]
+        'seed %s %+.1f' % (s, float(by_mode['predictive'][s]['queue_wait_mean_s']) -
+                           float(by_mode['reactive'][s]['queue_wait_mean_s'])) for s in seeds)]
     return lines
 
 

@@ -398,6 +398,7 @@ class World:
     def _ev_spawn_crowd(self, ev):
         """Scalability load: `count` static pedestrians outside Q and C (zone X)."""
         xmin, xmax, ymin, ymax = hub_map.MAP_BOUNDS
+        placed = 0
         for _ in range(int(ev['count'])):
             for _ in range(50):
                 x = self.rng.uniform(xmin + 0.2, xmax - 0.2)
@@ -415,7 +416,10 @@ class World:
                 if all(math.hypot(x - p.x, y - p.y) > 2 * PEDESTRIAN_RADIUS
                        for p in self.peds.values()):
                     self._new_ped('X', x, y)
+                    placed += 1
                     break
+        self._emit('scenario_runner', 'LOAD_SPAWNED',
+                   'pedestrians=%d/%d' % (placed, int(ev['count'])))
 
     def _ev_car_at_entrance(self, ev):
         """Queue a car at the parking barrier; the entrance sensor reports its id."""

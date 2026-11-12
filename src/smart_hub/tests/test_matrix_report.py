@@ -156,6 +156,9 @@ def test_dispatch_section_pairs_episodes_by_seed():
     assert '| all passengers (lower bound) | 2 | -10.0 |' in text and '| 2 of 2 |' in text
     assert 'seed 1 -20.0, seed 2 +5.0' in text
     assert dispatch_section([s8('reactive', 1, 60.0, 65.0)]) == []
+    s2 = [dict(r, scenario='S2') for r in rows]
+    both = '\n'.join(dispatch_section(s2 + rows))
+    assert both.index('(S2, rising demand') < both.index('(S8, step surge')
 
 
 def test_summary_separates_first_attempt_from_eventual_success(tmp_path):

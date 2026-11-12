@@ -53,6 +53,18 @@ def test_dispatch_needs_three_high_predictions_and_one_outstanding():
         'PREDICTED'
 
 
+def test_served_mission_rearms_dispatch_only_when_enabled():
+    for rearm, expected in ((False, None), (True, 'PREDICTED')):
+        p = DispatchPolicy(high=6, low=4, cooldown_sec=30, rearm_after_service=rearm)
+        assert [p.update(t, True, 8.0, True, 8, True, False) for t in range(3)][-1] == \
+            'PREDICTED'
+        assert p.served() is rearm
+        calls = [p.update(t, True, 8.0, True, 8, True, False) for t in range(40, 43)]
+        assert calls[:2] == [None, None]                # three new high predictions first
+        assert calls[-1] == expected
+        assert p.update(43, True, 8.0, True, 8, True, False) is None
+
+
 def test_dispatch_fallback_and_invalid_inputs():
     p = DispatchPolicy()
     assert p.update(0, False, 0.0, False, 0, True, False) is None     # nothing valid

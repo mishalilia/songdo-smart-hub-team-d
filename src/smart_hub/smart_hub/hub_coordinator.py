@@ -46,6 +46,7 @@ class HubCoordinator(Node):
         self.declare_parameter('crossing_clear_sec', 2.0)
         self.declare_parameter('crossing_lease_sec', 2.0)
         self.declare_parameter('dispatch_mode', 'predictive')   # predictive | reactive
+        self.declare_parameter('dispatch_rearm_after_service', True)
         check_parameters(self)
 
         self.arbiter = CrossingArbiter(
@@ -62,7 +63,8 @@ class HubCoordinator(Node):
         self.policy = DispatchPolicy(
             high=self.get_parameter('dispatch_high').value,
             low=self.get_parameter('dispatch_low').value,
-            cooldown_sec=self.get_parameter('dispatch_cooldown_sec').value)
+            cooldown_sec=self.get_parameter('dispatch_cooldown_sec').value,
+            rearm_after_service=self.get_parameter('dispatch_rearm_after_service').value)
         self.bus_state = (None, -1e9)
         self.dock_goal = None          # outstanding DockBus goal handle (or 'SENT')
 
@@ -176,6 +178,8 @@ class HubCoordinator(Node):
         self.dock_goal = None
         self.event('bus1', 'DISPATCH_RESULT', 'status=%d %s' % (res.status, res.result.reason),
                    goal_id)
+        if res.result.reason == 'DOCKED_AND_BOARDED' and self.policy.served():
+            self.event('hub_coordinator', 'ESCALATION_CLEARED', 'SERVED', goal_id)
 
     def on_bus_arrival(self, msg):
         self.bus_state = (msg, time.monotonic())

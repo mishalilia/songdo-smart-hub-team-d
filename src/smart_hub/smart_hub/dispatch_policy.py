@@ -6,6 +6,10 @@ Request one DockBus mission when the forecast is >= dispatch_high for three cons
 valid predictions and the bus is available; with an unavailable forecast fall back to the
 fresh observed queue (reason FALLBACK). One outstanding goal at a time, a request cooldown,
 and hysteresis: escalation clears only after five consecutive samples below dispatch_low.
+With rearm_after_service, a mission that ended with passengers boarded also clears it: the
+escalated demand was served, and a queue that is still high has to be confirmed again by
+three new consecutive predictions (or the fallback rule) before the next request. Without
+it a queue that never falls below dispatch_low keeps the bus at one trip per episode.
 
 A forecast counts as valid only after forecast_problem() accepted it: explicit validity,
 the expected source (30 s horizon, named model) and the age and order of its supporting
@@ -32,8 +36,10 @@ def forecast_problem(valid, horizon_sec, model_id, stamp, now, last_stamp=None,
 
 class DispatchPolicy:
 
-    def __init__(self, high=6.0, low=4.0, cooldown_sec=30.0, consecutive=3, clear_after=5):
+    def __init__(self, high=6.0, low=4.0, cooldown_sec=30.0, consecutive=3, clear_after=5,
+                 rearm_after_service=False):
         self.high, self.low = high, low
+        self.rearm_after_service = rearm_after_service
         self.cooldown_sec = cooldown_sec
         self.consecutive = consecutive
         self.clear_after = clear_after
@@ -41,6 +47,14 @@ class DispatchPolicy:
         self.low_streak = 0
         self.escalated = False
         self.last_request = -1e9
+
+    def served(self):
+        """Record a mission that ended with boarding; return True if escalation cleared."""
+        if not (self.rearm_after_service and self.escalated):
+            return False
+        self.escalated = False
+        self.high_streak = 0
+        return True
 
     def update(self, now, prediction_valid, predicted, queue_valid, queue_count,
                bus_available, outstanding):

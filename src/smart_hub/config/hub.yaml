@@ -25,6 +25,7 @@ hub_coordinator:
     dispatch_high: 6.0
     dispatch_low: 4.0
     dispatch_cooldown_sec: 30.0
+    dispatch_rearm_after_service: true
     crossing_lease_sec: 2.0
 
 parking_manager:
