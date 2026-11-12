@@ -71,10 +71,11 @@ ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 mode:=sim
 (assignment 20.1). Team D uses **44** — set it in every terminal.
 
 Launch arguments: `scenario` (S1..S9, DEMO, SCALE, SANDBOX, S4_PAIRS, S5_FREE, FAULTS), `seed`,
-`mode` (`sim` | `hardware`; hardware is an explicit opt-in with startup motion disabled and
-no simulator), `variant` (test variant listed in the scenario file), `rviz` (`true`),
-`record` (`true`: rosbag of the 20.2 topics to `evidence/bags/`), `dispatch_mode`
-(`predictive` | `reactive`), `ui_port`.
+`mode` (`sim` | `hardware`; hardware is an explicit opt-in with startup motion disabled, no
+simulator, and the UI's simulator injection rejected), `variant` (test variant listed in the
+scenario file), `rviz` (`true`), `record` (`true`: rosbag of the 20.2 topics to
+`evidence/bags/`), `dispatch_mode` (`predictive` | `reactive`), `ui_port` (default 8080; give
+every parallel launch on one machine its own port).
 
 Every node checks its parameters at startup against `smart_hub/params.py` and refuses to
 start on invalid values; `metrics_logger` stores all nodes' parameter values per run
@@ -88,29 +89,41 @@ ros2 launch smart_hub hub.launch.py scenario:=DEMO seed:=42 rviz:=true
 ```
 
 Open **http://localhost:8080** (control UI) and **http://localhost:8080/dashboard** (metrics).
-`DEMO` runs without the mission and safety nodes: the simulator drives the robot and the bus
-along scripted routes, boards passengers, operates the IoT devices, injects a pedestrian,
-an obstacle, sensor faults and load.
+`DEMO` starts the same 14 nodes as every other scenario (the launch file has one node list;
+the graph actually discovered is stored per run, see below). What differs is who moves the
+vehicles: in `DEMO` the simulator drives the robot and the bus along scripted routes
+(`agent_route`), boards passengers, operates the IoT devices, injects a pedestrian, an
+obstacle, sensor faults and load. Scripted motion is a presentation aid and is not evidence
+for the mission controllers: the assessed path is S7 / S8, where `robot_manager` and
+`bus_manager` produce candidate commands and `safety_supervisor` owns the final ones.
 
 | Professor's item | Where |
 |------------------|-------|
 | Simulation — robot | `scenario_runner` / `sim_world.py`: unicycle model, swept collisions, odometry and TF, energy; scripted routes (`agent_route`, UI "Drive (sim)"); autonomous missions come from `robot_manager` (M7) through `safety_supervisor` (M9) |
 | Simulation — IoT devices | `iot_devices.py` in the simulator: barrier servo, bus door, parking LEDs, slot sensors, camera — `/iot/status`, `/bus/door_open`, `/parking/barrier_open` |
-| Simulation — scalability | `ros2 run smart_hub scalability_benchmark` (compute vs. load → `evidence/scalability.csv`) and `scenario:=SCALE` (whole graph under 100+ pedestrians and cars) |
+| Simulation — scalability | `ros2 run smart_hub scalability_benchmark` (simulator-core compute vs. placed load → `evidence/scalability.csv`) and `scenario:=SCALE` (whole graph with a crowd and extra cars) |
 | UI (midterm) | `hub_ui` control page: live map, simulation controls, e-stop / clear stop, scenario reset, robot mission, parking, barrier |
-| Dashboard (final) | `hub_ui` `/dashboard`: mission outcome, collisions, crossing conflicts, latency vs. targets, data age and rates, energy |
+| Dashboard (final) | `hub_ui` `/dashboard`: mission outcome, collisions, strict crossing measures, passenger waits, latency vs. targets, data age and rates, energy |
 | Latency | `metrics_logger`: data age per topic (end-to-end), topic rates, `latency_ms` reported in events (UI → simulator, service round trips, and the other nodes' stop / grant / route timings) |
 | Energy consumption | robot and bus model in `sim_world.py`, device model in `iot_devices.py`; `/sim/energy`, `energy.csv` |
 
 Every run writes `evidence/runs/<run_id>/` with `events.csv`, `latency.csv`, `energy.csv`,
-`summary.json` (run ID, scenario, seed, commit, config hash, machine, metrics).
+`crossing_occupancy.csv` (ground-truth occupant set of C at every change), `params.json` and
+`summary.json`: run ID, scenario, seed, metrics, and the provenance of the run — source
+commit and dirty flag (`SMART_HUB_COMMIT` / `SMART_HUB_DIRTY`, else `git`), SHA-256 of the
+configuration and of every source, scenario and model file, evaluator revision, ROS
+distribution, RMW, machine — plus a graph audit taken 2 s into the run (discovered nodes,
+publisher QoS and subscribers of the section 5 topics, measured rates).
 In simulation mode the simulator plays the devices and applies the final motion commands;
 `actuator_bridge` is the hardware layer. `/sim/inject` (`std_msgs/String`, JSON event as in
-the scenario files) is a test-only input used by the UI.
+the scenario files) is a test-only input used by the UI; it is subscribed only by the
+simulator, which hardware mode never starts, and `hub_ui` in hardware mode neither creates
+the publisher nor accepts the command (`UI_SIM_REJECTED`).
 
 ## Energy and IoT models
 
-Teaching assumptions, not measured hardware:
+Analytical teaching model with assumed parameters, not measured consumption (no current or
+voltage was measured; J per run are comparable only at equal duration and completed service):
 `P = P_idle + (C_rr·m·g·|v| + max(0, m·a·v)) / η + c_turn·|ω|` — robot m = 8 kg, P_idle = 5 W;
 bus m = 25 kg, P_idle = 12 W; C_rr = 0.03, η = 0.7.
 IoT: servo 2.0 W moving / 0.3 W holding, door 3.0 / 0.2 W, LED 0.2 W lit, slot sensor 0.1 W,
@@ -154,7 +167,8 @@ Event types: `spawn_queue_tracks`, `remove_queue_tracks`, `fill_queue`, `arrival
 Scalability load: `spawn_random_cars`, `spawn_crowd`. Scripted motion and devices:
 `agent_route` (`agent`, `route`, `speed_mps`), `door`, `barrier` (`open`), `car_at_entrance`
 (`client`; the parking manager opens the barrier only for a valid reservation).
-Scripted agents do not use the crossing lock.
+Scripted bus / robot routes request the crossing lock from `hub_coordinator` like the
+managers do and wait at the entry of C until it is granted.
 
 RViz: `ros2 launch smart_hub hub.launch.py scenario:=S5 rviz:=true`.
 
@@ -185,14 +199,16 @@ ros2 launch smart_hub hub.launch.py scenario:=S8 seed:=42 record:=true
 colcon test --packages-select smart_hub
 colcon test-result --verbose
 
-# verification matrix T01-T18 with repeats -> evidence/test_matrix/{summary.md,results.csv}
+# verification matrix T01-T18 with repeats -> evidence/test_matrix/
+#   attempts.csv (every attempt, append-only), results.csv (last attempt per case),
+#   summary.md, records/<attempt_id>/ (run records of every case that failed at least once)
 ros2 run smart_hub run_test_matrix --parallel 4 --repeat 10
 ros2 run smart_hub run_test_matrix --cases "T13|T14" --repeat 3      # subset
 
 # demand model: generate 30 episodes, train, evaluate -> models/, evidence/demand/
 ros2 run smart_hub train_demand_model --episodes 30
 
-# compute scalability -> evidence/scalability.csv
+# simulator-core compute vs. placed load -> evidence/scalability.csv
 ros2 run smart_hub scalability_benchmark
 
 # S1 on a recorded video (camera path): live, and offline against manual counts
@@ -200,22 +216,145 @@ ros2 launch smart_hub s1_video.launch.py video:=/path/to/vtest.avi
 ros2 run smart_hub evaluate_s1_video --video /path/to/vtest.avi --truth evidence/s1_video/truth.csv
 ```
 
-## Results (midterm)
+## Evidence rules and metric definitions
 
-Verification matrix, 95 runs (`evidence/test_matrix/summary.md`): **95/95 passed**.
+**Validity in time.** A retained message is permission only while it is valid and fresh by
+both its source stamp and its local receipt time (`freshness.py`; future, out-of-order and
+replayed stamps are rejected). `demand_predictor` needs 60 s of time-contiguous valid queue
+history, erases it on an invalid message, and stamps the forecast with the acquisition time
+of the newest supporting observation; `hub_coordinator` falls back to reactive dispatch when
+the forecast, queue or vehicle state is rejected. Stale parking / crossing / queue / demand
+state is shown as UNKNOWN by the simulator, RViz and the UI.
 
-| Item | Result |
+**Crossing C** (`metrics.CrossingMonitor`, ground truth, no grace interval, no speed
+threshold; truth is sampled at 10 Hz, so times resolve to 100 ms). Reported separately:
+strict occupancy (two or more users — robot, bus, car, pedestrian — physically inside C in
+the same sample: episodes and seconds by pair class; one footprint test and one radius table
+in `hub_map.py` serve the managers, the supervisor, the arbiter, the simulator and the
+evaluator), unauthorized entry (`no_grant`: robot
+or bus entering without owning a fresh `/crossing/state`; `pedestrian_present`: entering
+while a pedestrian is inside; `car_against_owner`), token overlap, pedestrian response
+latency (pedestrian enters C → every robot / bus inside is at ground-truth standstill;
+budget 1000 ms; unresolved cases are counted), and contact (`COLLISION`).
+`crossing_occupancy.csv` keeps every change of the occupant set. The midterm "conflict"
+definition (1 s grace) survives only as a labelled diagnostic and is not a pass criterion.
+
+**Stop times** are three different measures and are never mixed: (1) *zero command* —
+`STOP_LATCHED latency_ms`, monotonic interval inside `safety_supervisor` from receipt of the
+stop input to publication of the zero command; (2) *measured standstill* —
+`STANDSTILL_MEASURED`, from the same receipt to receipt of the first pose observation below
+the standstill speed (budget 1000 ms; monotonic; `observer_delay_ms` = receipt − observation
+stamp is reported next to it); (3) *route stop* —
+`ROUTE_STOP_MEASURED`, from a `REROUTE` / `NO_ROUTE` event to ground-truth standstill
+(budget 500 ms, 10 Hz truth); motion after `NO_ROUTE` is a `MOTION_WITHOUT_ROUTE` finding.
+`summary.md` lists each with its clock domain.
+
+**Routing** (S6 / S7). The planner cost is the sum of explicit terms per edge — length /
+bounded observed speed, density penalty, expected crossing wait — and blocked, invalid or
+missing edges are removed; the edge snapshot is rejected by receipt age and by observation
+stamp. S6 calls `/route/compute` on the live graph before, during and after each blockage
+(`ROUTE_REPLY`) and the checker recomputes continuity, permission and cost from `map.yaml`
+with an oracle that shares no code with the planner. A replan passes only as the causal
+chain blockage → `EDGE_BLOCKED` → `REROUTE` (old path, route generation) → measured
+standstill → new route of a higher generation that avoids the edge.
+
+**Passenger waits.** Every passenger is logged on entering the queue (`QUEUE_ENTERED`;
+`QUEUE_BALKED` when the zone is full). Reported: wait of boarded passengers (mean, p50, p95,
+n), the all-passenger lower bound in which abandoned and still-waiting passengers count with
+their censored wait, completion rate (boarded / arrived) and queue clearance rate. Dispatch
+policies are compared per seed: Δ = W_predictive − W_reactive for the same seed, with a
+bootstrap that resamples whole paired episodes, not passenger rows.
+
+**Demand model.** Errors are computed per episode; the model is compared with persistence by
+a paired whole-episode bootstrap on the test split and on 30 extra unseen seeds
+(`evidence/demand/evaluation.json`).
+
+**Camera path.** `passenger_detector` processes only the newest frame; a frame replaced
+before processing is counted as dropped, and a frame older than `stale_timeout_sec` is expired
+instead of processed. `CAMERA_FRAMES` reports received / processed / dropped / expired and
+acquisition-to-update p95 / p99 every 10 s. The crossing is assessed independently of the
+queue count: one foot-point inside C marks it occupied at once (no 0.4 s confirmation), while
+the queue count keeps the 0.4 s confirmation and 0.5 s occlusion rules.
+The real-video result (`evidence/s1_video/result.json`) is bound to its inputs by the SHA-256
+of the clip and of the label file; the clip itself and images of people are not stored in the
+repository, only our hand counts and the outputs. The image-to-map quadrilateral used for it
+is an evaluation mapping, not a surveyed calibration. HOG stays the reproducible baseline; a
+CNN detector has to be compared on these same frozen labels.
+
+**Test matrix** (`run_test_matrix`, harness 2.1). Every attempt gets an ID
+`<matrix>-<case>-<attempt>` and a row in `attempts.csv`, which is append-only across matrices
+and harness versions. A failure is *infrastructure* (no run record, startup gate incomplete,
+kill target missing, unreadable summary, graph audit mismatch) or *application* (the
+checker's criterion is not met). Only infrastructure failures are retried, once; the failed
+attempt stays in `attempts.csv` with `superseded_by`, and the run records of both attempts
+are copied to `records/`. `summary.md` reports first-attempt and eventual totals separately.
+Each run is bound to one source commit (`--commit`, or `SMART_HUB_COMMIT`, else `git`) and
+carries the hashes listed above. The graph audit compares each run with the interface
+table: the 14 nodes, exactly one publisher per section 5 topic with the specified QoS, and a
+measured rate of at least 0.8 × nominal (and at most 1.25 × nominal for purely periodic
+topics; `/traffic/edges` and `/parking/state` also publish on change). The launches of a
+matrix use the UDP transport of Fast DDS (`FASTDDS_BUILTIN_TRANSPORTS=UDPv4` unless the
+caller sets it): shared-memory segments left by earlier runs can fill `/dev/shm`, after which
+nodes start with mixed transports and a subscriber may silently receive nothing.
+
+**Scalability benchmark.** `cars_requested` / `pedestrians_requested` are what the load
+event asks for; `cars_placed` / `pedestrians_placed` are what fits on free road and walkway
+space, and only rows with `placement_complete` say anything about that load.
+`world_step_compute_ratio` is the 50 ms step period divided by the mean compute time of one
+simulator step: it is head-room of the simulator core, not whole-graph speed. Executor
+load, sensor backlog and message latency of the full graph are not measured by this tool.
+
+## Results
+
+Frozen revision `eff8e52`, matrix `M20261112-004912` (harness 2.1, 95 cases, three launches in
+parallel on one 8-CPU machine; `evidence/test_matrix/summary.md`): **95/95 passed on the
+first attempt**, no re-runs. Every run passed the graph audit (14 nodes, one publisher and the
+specified QoS per topic, lowest measured rate 95 % of nominal). `colcon test` on the same
+revision: 127 tests, 0 failures. Commits after `eff8e52` change only `README.md` and
+`evidence/`.
+
+Repeated runs under the final criteria (every attempt is in `attempts.csv`):
+
+| Matrix | Harness | Commit | First attempt | Eventual | Attempts that failed |
+|--------|---------|--------|---------------|----------|----------------------|
+| `M20261111-233205` | 2.0 | `3773edf` | 93/95 | 94/95 | T13 (S7, seed 7): `/hub/vehicles` at 13.05 Hz in the graph audit — infrastructure, passed on the single re-run. T05 (S3, seed 6): the bus did not dock — counted as an application failure and not re-run |
+| `M20261112-004912` | 2.1 | `eff8e52` | 95/95 | 95/95 | none |
+
+The T05 failure is kept as recorded. In that run `route_planner` received no
+`/traffic/edges` (the logger received them at 2 Hz), refused every request with
+`EDGE_STATES_STALE`, and the bus stayed at rest: a safe outcome, but no docking. The launch
+log (`records/M20261111-233205-007-1/launch.log`) shows Fast DDS unable to create
+shared-memory segments in nine of the fourteen nodes; the errors start 35 minutes into the
+matrix, when the 64 MB `/dev/shm` of the test container had filled up. `3773edf` and
+`eff8e52` differ only in the transport the harness selects for its launches; the node code
+is the same. The three midterm matrices of 2026-10-22 (first run 82 passed, 2 failed and 11
+not evaluated; second run 93/95; eleven T17 / T18 rows replaced by harness 1.1) are restored
+in `attempts.csv` with their harness versions and attempt IDs; they were judged by the
+midterm criteria and are not comparable with the rows above. The run records of the final
+matrix are in `evidence/test_matrix/runs-M20261112-004912.tar.gz`.
+
+| Item | Result (matrix `M20261112-004912` unless stated) |
 |------|--------|
 | S1 queue counting | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.93 s after camera freeze |
-| S1 on real video (PETS 2009 view, 108 hand-annotated frames) | MAE 1.13 (target ≤ 1: not met), exact 26 %, within ±1 70 %, undercounts by 0.83; MAE 1.77 on 22 partially occluded frames, 0.97 on the rest; 213 ms/frame |
-| S3 bus docking (10 runs) | position error ≤ 0.20 m, yaw ≤ 0.17 rad; ETA error at 5 m within 2.3 s |
-| S4 parking (20 simultaneous pairs) | 0 double allocations, service p95 84 ms |
-| S5 congestion | precision 1.00, recall 1.00; 0 false alarms in 10 free-flow runs |
-| S7 robot escort (10 runs) | all arrived, arrival error < 0.10 m |
-| S8 integrated hub (10 + 10 runs) | 0 collisions, 0 crossing conflicts, 0 overlapping dispatches |
-| S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | e-stop latency < 4 ms; every fault stops or aborts safely |
-| Node kills (robot_manager, safety_supervisor, route_planner) | robot stopped within 0.65 s |
-| Dispatch policy (S8, same seeds) | mean queue wait: predictive 61.4 s, reactive 53.8 s |
+| S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames) | MAE 1.13 (target ≤ 1: not met), exact 26 %, within ±1 70 %, bias −0.83; MAE 1.77 on 22 partially occluded frames, 0.97 on the rest; 36 frames reported empty with people present; detector 213 ms per frame, p95 244 ms, p99 268 ms |
+| S2 demand forecast (offline, `evidence/demand/evaluation.json`) | test MAE 1.75 vs persistence 2.07; paired per-episode Δ −0.31, 95 % interval −0.50 .. −0.11, better in 5 of 6 test episodes; on 30 further episodes 1.70 vs 1.93, Δ −0.23 (−0.35 .. −0.11), better in 24 of 30 |
+| S3 bus docking (10 runs) | position error 0.07–0.15 m (limit 0.20), yaw error within ±0.125 rad (limit 0.17), ETA error at 5 m −2.8 .. −0.3 s |
+| S4 parking (20 simultaneous pairs) | 40 grants, 0 double allocations, service p95 42.7 ms |
+| S5 congestion | precision 1.00, recall 1.00; 0 false labels in 10 free-flow runs |
+| S6 routing on the live graph | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: zero command, standstill measured after 125 ms and held |
+| S7 robot escort (10 runs) | all arrived, arrival error < 0.10 m; in every run the active edge Cs–J is blocked and the route actually changes (R–W–Cn–Cs–J–D → … Cn–B–U–E–J–D); standstill 52–142 ms after the replan decision (budget 500 ms) |
+| S8 integrated hub (10 + 10 runs) | 0 contacts, 0 unauthorized entries, 0 token overlaps, 0 conflicts with cars. Strict occupancy: in each of the 10 predictive runs a pedestrian steps into C while the bus is inside under its grant (10 episodes, 5 s each); the bus is at measured standstill 99–298 ms later (budget 1000 ms), none unresolved. Reactive runs: 0 episodes |
+| S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | zero command 0.19–3.14 ms after e-stop receipt (requirement 200 ms); measured standstill 26–57 ms, observer delay 0.9–17 ms; every fault stops or aborts safely |
+| Node kills (10 runs + planner) | zero output 0.51–0.56 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
+| Dispatch policy (S8, 10 paired seeds) | boarded wait: predictive 68.7 s, reactive 56.9 s; paired Δ +11.9 s, 95 % interval −0.6 .. +22.5, predictive lower in 2 of 10 seeds. All passengers (lower bound, 126 / 127 still waiting at the end): Δ +0.6 s (−7.3 .. +10.5). Predictive dispatch does not reduce waiting in this scenario |
+| Energy (analytical model; S8, equal duration 297 s, equal service 40 boarded per policy) | bus 3898 J predictive / 3880 J reactive per run, robot 1555 / 1558 J; bus + robot per boarded passenger 1363 / 1359 J |
+| Scalability (`evidence/scalability.csv`, world step only) | fully placed up to 15 cars + 60 pedestrians: step p95 0.41 ms, p99 0.45 ms. 100 cars requested: 23 placed, 146 of 400 pedestrians — incomplete, not a 100-car result |
+
+Not covered by this revision: the matrix feeds `passenger_detector` from the simulator, so
+it yields no frame-drop or acquisition-to-decision statistics for the camera path (the
+accounting is unit-tested; the video result above is offline); a CNN detector and its
+comparison with HOG; a surveyed calibration of the queue scene; measured energy on hardware;
+executor-load and sensor-backlog sweeps of the whole graph.
 
 ## Units and invalid-value conventions
 
