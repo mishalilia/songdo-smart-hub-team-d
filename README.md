@@ -213,7 +213,12 @@ ros2 run smart_hub scalability_benchmark
 
 # S1 on a recorded video (camera path): live, and offline against manual counts
 ros2 launch smart_hub s1_video.launch.py video:=/path/to/vtest.avi
-ros2 run smart_hub evaluate_s1_video --video /path/to/vtest.avi --truth evidence/s1_video/truth.csv
+ros2 run smart_hub evaluate_s1_video --video /path/to/vtest.avi --truth evidence/s1_video/truth.csv \
+    --split evidence/s1_video/split.json [--ablation]      # YOLOX vs HOG on frozen labels
+ros2 launch smart_hub s1_video.launch.py video:=/path/to/vtest.avi detector:=hog   # live, HOG
+
+# whole ROS graph under growing load -> evidence/graph_load.csv
+ros2 run smart_hub graph_load_sweep
 ```
 
 ## Evidence rules and metric definitions
@@ -263,7 +268,16 @@ standstill → new route of a higher generation that avoids the edge.
 n), the all-passenger lower bound in which abandoned and still-waiting passengers count with
 their censored wait, completion rate (boarded / arrived) and queue clearance rate. Dispatch
 policies are compared per seed: Δ = W_predictive − W_reactive for the same seed, with a
-bootstrap that resamples whole paired episodes, not passenger rows.
+bootstrap that resamples whole paired episodes, not passenger rows, on two demand shapes: S2
+(rising demand, 2 → 6 → 10 arrivals per minute, 9.4) and S8 (step surge at 60 s).
+
+**Dispatch re-arm.** Rule 9.3.4 clears demand escalation only after five predictions below 4.
+Read strictly, a queue that stays above 4 after a trip blocks every later request: in the
+midterm S8 runs the bus made one trip per episode and boarded 4 of about 17 arrivals. With
+`dispatch_rearm_after_service: true` (default) a mission that ended `DOCKED_AND_BOARDED` also
+clears the escalation (`ESCALATION_CLEARED SERVED`); the next request still needs three new
+consecutive predictions ≥ 6 (or the fallback rule), a free bus, no outstanding goal and the
+30 s cooldown. `false` restores the strict reading.
 
 **Demand model.** Errors are computed per episode; the model is compared with persistence by
 a paired whole-episode bootstrap on the test split and on 30 extra unseen seeds
@@ -278,8 +292,18 @@ the queue count keeps the 0.4 s confirmation and 0.5 s occlusion rules.
 The real-video result (`evidence/s1_video/result.json`) is bound to its inputs by the SHA-256
 of the clip and of the label file; the clip itself and images of people are not stored in the
 repository, only our hand counts and the outputs. The image-to-map quadrilateral used for it
-is an evaluation mapping, not a surveyed calibration. HOG stays the reproducible baseline; a
-CNN detector has to be compared on these same frozen labels.
+is an evaluation mapping, not a surveyed calibration.
+
+**Detectors and ablation.** `camera_detector` (launch argument `detector`, node parameter
+`camera_detector`): `yolox` — YOLOX-s CNN from the OpenCV Model Zoo
+(`models/yolox_s_2022nov.onnx`, Apache-2.0 licence next to it, SHA-256 in every result) — is
+the default; `hog` is the HOG baseline with settings chosen the same way; `hog_midterm` keeps
+the midterm settings. The 108 labels were split in time before any change
+(`evidence/s1_video/split.json`: first 54 frames for development, last 54 for test); score
+threshold, NMS overlap, smallest box and foot-point height were chosen on the development part
+only, frozen in `ablation_plan.json` and committed before the single test evaluation.
+`evaluate_s1_video --split … --ablation` reproduces `ablation.json`; the confirmation (0.4 s),
+occlusion (0.5 s) and association (0.5 m) rules of the tracker are unchanged.
 
 **Test matrix** (`run_test_matrix`, harness 2.1). Every attempt gets an ID
 `<matrix>-<case>-<attempt>` and a row in `attempts.csv`, which is append-only across matrices
@@ -301,60 +325,69 @@ nodes start with mixed transports and a subscriber may silently receive nothing.
 event asks for; `cars_placed` / `pedestrians_placed` are what fits on free road and walkway
 space, and only rows with `placement_complete` say anything about that load.
 `world_step_compute_ratio` is the 50 ms step period divided by the mean compute time of one
-simulator step: it is head-room of the simulator core, not whole-graph speed. Executor
-load, sensor backlog and message latency of the full graph are not measured by this tool.
+simulator step: it is head-room of the simulator core, not whole-graph speed.
+
+**Whole-graph load** (`graph_load_sweep`, `evidence/graph_load.csv`). The full launch runs
+alone with scenario `LOAD` at five load levels (idle … saturated). Per level: placed
+pedestrians and cars (`LOAD_SPAWNED`), CPU of every node process over a 40 s window
+(`/proc/<pid>/stat`, % of one core; the busiest node is the executor-load bottleneck),
+receipt age of the main topics (stamp → metrics_logger receipt, p95 / max: what a consumer
+sees as backlog), measured rates and the graph audit.
 
 ## Results
 
-Frozen revision `eff8e52`, matrix `M20261112-004912` (harness 2.1, 95 cases, three launches in
-parallel on one 8-CPU machine; `evidence/test_matrix/summary.md`): **95/95 passed on the
+Frozen revision `0523e7d`, matrix `M20261112-054841` (harness 2.1, 114 cases, three launches
+in parallel on one 8-CPU machine; `evidence/test_matrix/summary.md`): **114/114 passed on the
 first attempt**, no re-runs. Every run passed the graph audit (14 nodes, one publisher and the
-specified QoS per topic, lowest measured rate 95 % of nominal). `colcon test` on the same
-revision: 127 tests, 0 failures. Commits after `eff8e52` change only `README.md` and
+specified QoS per topic, lowest measured rate 90 % of nominal). `colcon test` on the same
+revision: 131 tests, 0 failures. Commits after `0523e7d` change only `README.md` and
 `evidence/`.
 
 Repeated runs under the final criteria (every attempt is in `attempts.csv`):
 
-| Matrix | Harness | Commit | First attempt | Eventual | Attempts that failed |
-|--------|---------|--------|---------------|----------|----------------------|
-| `M20261111-233205` | 2.0 | `3773edf` | 93/95 | 94/95 | T13 (S7, seed 7): `/hub/vehicles` at 13.05 Hz in the graph audit — infrastructure, passed on the single re-run. T05 (S3, seed 6): the bus did not dock — counted as an application failure and not re-run |
-| `M20261112-004912` | 2.1 | `eff8e52` | 95/95 | 95/95 | none |
+| Matrix | Harness | Commit | Cases | First attempt | Eventual | Attempts that failed |
+|--------|---------|--------|-------|---------------|----------|----------------------|
+| `M20261111-233205` | 2.0 | `3773edf` | 95 | 93/95 | 94/95 | T13 (S7, seed 7): `/hub/vehicles` at 13.05 Hz in the graph audit — infrastructure, passed on the single re-run. T05 (S3, seed 6): the bus did not dock — application failure, not re-run |
+| `M20261112-004912` | 2.1 | `eff8e52` | 95 | 95/95 | 95/95 | none |
+| `M20261112-054841` | 2.1 | `0523e7d` | 114 | 114/114 | 114/114 | none (adds ten paired S2 episodes per dispatch policy; dispatch re-arm) |
 
 The T05 failure is kept as recorded. In that run `route_planner` received no
 `/traffic/edges` (the logger received them at 2 Hz), refused every request with
 `EDGE_STATES_STALE`, and the bus stayed at rest: a safe outcome, but no docking. The launch
 log (`records/M20261111-233205-007-1/launch.log`) shows Fast DDS unable to create
 shared-memory segments in nine of the fourteen nodes; the errors start 35 minutes into the
-matrix, when the 64 MB `/dev/shm` of the test container had filled up. `3773edf` and
-`eff8e52` differ only in the transport the harness selects for its launches; the node code
-is the same. The three midterm matrices of 2026-10-22 (first run 82 passed, 2 failed and 11
-not evaluated; second run 93/95; eleven T17 / T18 rows replaced by harness 1.1) are restored
-in `attempts.csv` with their harness versions and attempt IDs; they were judged by the
-midterm criteria and are not comparable with the rows above. The run records of the final
-matrix are in `evidence/test_matrix/runs-M20261112-004912.tar.gz`.
+matrix, when the 64 MB `/dev/shm` of the test container had filled up. Since harness 2.1 the
+launches use UDP. The three midterm matrices of 2026-10-22 (first run 82 passed, 2 failed and
+11 not evaluated; second run 93/95; eleven T17 / T18 rows replaced by harness 1.1) are
+restored in `attempts.csv` with their harness versions and attempt IDs; they were judged by
+the midterm criteria and are not comparable with the rows above. Run records of the two 2.1
+matrices: `evidence/test_matrix/runs-<matrix>.tar.gz`.
 
-| Item | Result (matrix `M20261112-004912` unless stated) |
+| Item | Result (matrix `M20261112-054841` unless stated) |
 |------|--------|
-| S1 queue counting | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.93 s after camera freeze |
-| S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames) | MAE 1.13 (target ≤ 1: not met), exact 26 %, within ±1 70 %, bias −0.83; MAE 1.77 on 22 partially occluded frames, 0.97 on the rest; 36 frames reported empty with people present; detector 213 ms per frame, p95 244 ms, p99 268 ms |
+| S1 queue counting (simulated camera) | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.96 s after camera freeze |
+| S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames; `evidence/s1_video/`) | **YOLOX-s: MAE 0.46 on the 54 held-out test frames, 0.52 on all 108 (target ≤ 1 met)**; exact 63 % / within ±1 91 % on the test part; MAE 1.00 on partially occluded frames; 6 frames reported empty with people present (midterm HOG: 36). Ablation on the same test frames: midterm HOG 1.11, HOG with re-chosen thresholds 0.93. Detector time per frame: YOLOX 445 ms (p95 500, p99 531), HOG 235 ms p95 |
+| S1 live camera path (`live_camera.json`, 90 s) | YOLOX processes 43 % of received frames (newest-frame policy, the rest dropped, none expired), acquisition → tracker update p95 0.71 s, p99 0.88 s; HOG 88 %, 0.35 / 0.45 s |
 | S2 demand forecast (offline, `evidence/demand/evaluation.json`) | test MAE 1.75 vs persistence 2.07; paired per-episode Δ −0.31, 95 % interval −0.50 .. −0.11, better in 5 of 6 test episodes; on 30 further episodes 1.70 vs 1.93, Δ −0.23 (−0.35 .. −0.11), better in 24 of 30 |
-| S3 bus docking (10 runs) | position error 0.07–0.15 m (limit 0.20), yaw error within ±0.125 rad (limit 0.17), ETA error at 5 m −2.8 .. −0.3 s |
-| S4 parking (20 simultaneous pairs) | 40 grants, 0 double allocations, service p95 42.7 ms |
+| S3 bus docking (10 runs) | position error 0.08–0.14 m (limit 0.20), yaw error within ±0.10 rad (limit 0.17), ETA error at 5 m −1.1 .. −0.5 s |
+| S4 parking (20 simultaneous pairs) | 40 grants, 0 double allocations, service p95 18.9 ms |
 | S5 congestion | precision 1.00, recall 1.00; 0 false labels in 10 free-flow runs |
-| S6 routing on the live graph | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: zero command, standstill measured after 125 ms and held |
-| S7 robot escort (10 runs) | all arrived, arrival error < 0.10 m; in every run the active edge Cs–J is blocked and the route actually changes (R–W–Cn–Cs–J–D → … Cn–B–U–E–J–D); standstill 52–142 ms after the replan decision (budget 500 ms) |
-| S8 integrated hub (10 + 10 runs) | 0 contacts, 0 unauthorized entries, 0 token overlaps, 0 conflicts with cars. Strict occupancy: in each of the 10 predictive runs a pedestrian steps into C while the bus is inside under its grant (10 episodes, 5 s each); the bus is at measured standstill 99–298 ms later (budget 1000 ms), none unresolved. Reactive runs: 0 episodes |
-| S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | zero command 0.19–3.14 ms after e-stop receipt (requirement 200 ms); measured standstill 26–57 ms, observer delay 0.9–17 ms; every fault stops or aborts safely |
-| Node kills (10 runs + planner) | zero output 0.51–0.56 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
-| Dispatch policy (S8, 10 paired seeds) | boarded wait: predictive 68.7 s, reactive 56.9 s; paired Δ +11.9 s, 95 % interval −0.6 .. +22.5, predictive lower in 2 of 10 seeds. All passengers (lower bound, 126 / 127 still waiting at the end): Δ +0.6 s (−7.3 .. +10.5). Predictive dispatch does not reduce waiting in this scenario |
-| Energy (analytical model; S8, equal duration 297 s, equal service 40 boarded per policy) | bus 3898 J predictive / 3880 J reactive per run, robot 1555 / 1558 J; bus + robot per boarded passenger 1363 / 1359 J |
-| Scalability (`evidence/scalability.csv`, world step only) | fully placed up to 15 cars + 60 pedestrians: step p95 0.41 ms, p99 0.45 ms. 100 cars requested: 23 placed, 146 of 400 pedestrians — incomplete, not a 100-car result |
+| S6 routing on the live graph | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: zero command, standstill measured after 93 ms and held |
+| S7 robot escort (10 runs) | all arrived, arrival error < 0.10 m; in every run the active edge Cs–J is blocked and the route actually changes (R–W–Cn–Cs–J–D → … Cn–B–U–E–J–D); standstill 44–128 ms after the replan decision (budget 500 ms) |
+| S8 integrated hub (10 + 10 runs) | 0 contacts, 0 unauthorized entries, 0 token overlaps, 0 robot/bus–robot/bus or robot/bus–car occupancy. In each predictive run the scripted pedestrian steps into C while the bus is inside under its grant (10 episodes); the bus is at measured standstill 100–200 ms later (budget 1000 ms), none unresolved. Reactive runs: 0 episodes (the bus passes C earlier) |
+| S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | zero command 0.26–0.80 ms after e-stop receipt (requirement 200 ms); measured standstill 42–49 ms, observer delay 1.0–3.2 ms; every fault stops or aborts safely |
+| Node kills (10 runs + planner) | zero output 0.47–0.59 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
+| Dispatch service (re-arm after a served mission) | S8: 120 boarded per policy in 10 episodes (midterm: 40), completion rate 0.67 / 0.66 (midterm 0.24); all-passenger wait lower bound 140 s (midterm 165 s) |
+| Dispatch policy, rising demand (S2, 10 paired seeds) | all passengers (lower bound): predictive 129.1 s, reactive 134.0 s, Δ −4.9 s, 95 % interval −10.5 .. +0.7, predictive lower in 7 of 10 seeds; boarded only Δ +0.0 s (−8.2 .. +8.5) |
+| Dispatch policy, step surge (S8, 10 paired seeds) | all passengers Δ −1.1 s (−10.7 .. +8.7), 5 of 10; boarded only Δ +3.1 s (−4.2 .. +10.3). A jump of seven people cannot be forecast; the forecast needs three consecutive values ≥ 6 |
+| Energy (analytical model, not measured; equal duration, equal service: 120 boarded per policy) | S8 (299 s): bus 4389 / 4375 J, robot 1567 / 1565 J per run (predictive / reactive); bus + robot per boarded passenger 496 / 495 J (midterm, one trip: 1363 J). S2 (357 s): 580 / 589 J per boarded passenger |
+| Whole-graph load (`evidence/graph_load.csv`, full launch alone) | up to the most the map holds (153 pedestrians, 23 cars): all 14 nodes together 186 → 234 % of one core, busiest node `scenario_runner` ≤ 46 %; receipt age p95 ≤ 13 ms for `/hub/vehicles`, ≤ 10 ms for `/hub/safety`, ≤ 29 ms for `/camera/image_raw`; graph audit passed at every level except one start-up sample (`/hub/demand` not yet discovered 2 s into the `light` run) |
+| Simulator core (`evidence/scalability.csv`, world step only) | fully placed up to 15 cars + 60 pedestrians: step p95 0.41 ms, p99 0.45 ms. 100 cars requested: 23 placed — not a 100-car result |
 
-Not covered by this revision: the matrix feeds `passenger_detector` from the simulator, so
-it yields no frame-drop or acquisition-to-decision statistics for the camera path (the
-accounting is unit-tested; the video result above is offline); a CNN detector and its
-comparison with HOG; a surveyed calibration of the queue scene; measured energy on hardware;
-executor-load and sensor-backlog sweeps of the whole graph.
+Not covered: a surveyed calibration of a real queue scene (the PETS mapping is an evaluation
+mapping; surveyed floor points need a physical site) and measured energy (the energy model is
+analytical; measurement needs a robot with current / voltage sensing). Both stay as stated
+limitations.
 
 ## Units and invalid-value conventions
 
