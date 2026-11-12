@@ -284,8 +284,9 @@ consecutive predictions ≥ 6 (or the fallback rule), a free bus, no outstanding
 30 s cooldown. `false` restores the strict reading.
 
 **Demand model.** Errors are computed per episode; the model is compared with persistence by
-a paired whole-episode bootstrap on the test split and on 30 extra unseen seeds
-(`evidence/demand/evaluation.json`).
+a paired whole-episode bootstrap on the 6 test episodes and on all 30 unseen episodes (the 6
+test episodes plus 24 further seeds; `evidence/demand/evaluation.json`). The test matrix
+repeats this evaluation as the offline case T03.
 
 **Camera path.** `passenger_detector` processes only the newest frame; a frame replaced
 before processing is counted as dropped, and a frame older than `stale_timeout_sec` is expired
@@ -375,7 +376,7 @@ matrices: `evidence/test_matrix/runs-<matrix>.tar.gz`.
 | S1 queue counting (simulated camera) | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.96 s after camera freeze |
 | S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames; `evidence/s1_video/`) | **YOLOX-s: MAE 0.46 on the 54 held-out test frames, 0.52 on all 108 (target ≤ 1 met)**; exact 63 % / within ±1 91 % on the test part; MAE 1.00 on partially occluded frames; 6 frames reported empty with people present (midterm HOG: 36). Ablation on the same test frames: midterm HOG 1.11, HOG with re-chosen thresholds 0.93. Detector time per frame: YOLOX 445 ms (p95 500, p99 531), HOG 235 ms p95 |
 | S1 live camera path (`live_camera.json`, 90 s) | YOLOX processes 43 % of received frames (newest-frame policy, the rest dropped, none expired), acquisition → tracker update p95 0.71 s, p99 0.88 s; HOG 88 %, 0.35 / 0.45 s |
-| S2 demand forecast (offline, `evidence/demand/evaluation.json`) | test MAE 1.75 vs persistence 2.07; paired per-episode Δ −0.31, 95 % interval −0.50 .. −0.11, better in 5 of 6 test episodes; on 30 further episodes 1.70 vs 1.93, Δ −0.23 (−0.35 .. −0.11), better in 24 of 30 |
+| S2 demand forecast (offline, `evidence/demand/evaluation.json`) | test MAE 1.75 vs persistence 2.07; paired per-episode Δ −0.31, 95 % interval −0.50 .. −0.11, better in 5 of 6 test episodes; on all 30 unseen episodes (6 test + 24 further) 1.70 vs 1.93, Δ −0.23 (−0.35 .. −0.11), better in 24 of 30 |
 | S3 bus docking (10 runs) | position error 0.08–0.14 m (limit 0.20), yaw error within ±0.10 rad (limit 0.17), ETA error at 5 m −1.1 .. −0.5 s |
 | S4 parking (20 simultaneous pairs) | 40 grants, 0 double allocations, service p95 18.9 ms |
 | S5 congestion | precision 1.00, recall 1.00; 0 false labels in 10 free-flow runs |

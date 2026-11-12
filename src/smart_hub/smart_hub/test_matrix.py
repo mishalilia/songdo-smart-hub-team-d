@@ -51,7 +51,8 @@ from smart_hub.metrics import parse_latency_ms, percentile
 #      bus (the 15.1 stimulus, judged by the response) versus a robot / bus entering onto a
 #      pedestrian or without a grant (hub-caused, must be zero). Matrix M20261112-054841 was
 #      re-evaluated with it; no runs were repeated.
-HARNESS_VERSION = '2.2'
+# 2.3  T03 and T11 run inside the matrix as offline cases with attempt IDs.
+HARNESS_VERSION = '2.3'
 TRANSPORT_ENV = {'FASTDDS_BUILTIN_TRANSPORTS': 'UDPv4'}    # kept if already set by the caller
 MAX_ATTEMPTS = 2           # the second one only after an infrastructure failure
 RECORD_FILES = ('events.csv', 'summary.json', 'params.json', 'crossing_occupancy.csv',
@@ -771,6 +772,60 @@ def check_s6(ev, summary):
     return not problems, detail, {'planning_p95_ms': p95, 'route_stop_ms': values.get('stop_ms')}
 
 
+DEMAND_SEED, DEMAND_EPISODES, DEMAND_EXTRA = 1000, 30, 24     # as train_demand_model
+INFERENCE_P95_MS = 100.0
+
+
+def check_t03():
+    """T03: the installed model against persistence on every unseen episode, paired."""
+    from ament_index_python.packages import get_package_share_directory
+    from smart_hub.demand_model import RidgeModel, split_episodes
+    from smart_hub.train_demand_model import episode_errors, generate_episode, stack
+    model = RidgeModel.load(os.path.join(get_package_share_directory('smart_hub'), 'models',
+                                         'demand_ridge.json'))
+    train, val, test = split_episodes(DEMAND_EPISODES)
+    if set(train) & set(test) or set(val) & set(test):
+        return False, 'test episodes overlap training or validation', {}
+    test_seeds = [DEMAND_SEED + i for i in test]
+    unseen = test_seeds + [DEMAND_SEED + DEMAND_EPISODES + i for i in range(DEMAND_EXTRA)]
+    series = {seed: generate_episode(seed) for seed in unseen}
+    rows = [episode_errors(model, seed, series[seed]) for seed in unseen]
+    X, _, _ = stack([series[seed] for seed in test_seeds], range(len(test_seeds)))
+    spent = []
+    for x in X:
+        start = time.perf_counter()
+        model.predict(x)
+        spent.append((time.perf_counter() - start) * 1000.0)
+    test_rows = rows[:len(test_seeds)]
+    model_mae = sum(r['model_mae'] for r in test_rows) / len(test_rows)
+    base_mae = sum(r['persistence_mae'] for r in test_rows) / len(test_rows)
+    deltas = [r['delta_mae'] for r in rows]
+    boot = paired_bootstrap(deltas)
+    p95 = percentile(spent, 95)
+    ok = model_mae <= base_mae and boot['ci95_high'] < 0 and p95 < INFERENCE_P95_MS
+    details = 'model %s: test MAE %.3f vs persistence %.3f (%d episodes); all %d unseen ' \
+        'episodes paired delta %.3f [%.3f, %.3f], model better in %d; inference p95 ' \
+        '%.4f ms' % (model.model_id, model_mae, base_mae, len(test_rows), len(rows),
+                     boot['mean'], boot['ci95_low'], boot['ci95_high'],
+                     sum(d < 0 for d in deltas), p95)
+    return ok, details, {'model_mae': round(model_mae, 4),
+                         'persistence_mae': round(base_mae, 4), 'inference_p95_ms': p95}
+
+
+def check_t11():
+    """T11: the planner against the independent oracle of tests/test_route_oracle.py."""
+    tests = os.path.join('src', 'smart_hub', 'tests')
+    files = [os.path.join(tests, f) for f in ('test_route_oracle.py', 'test_route_engine.py')]
+    if not all(os.path.exists(f) for f in files):
+        raise FileNotFoundError('route tests not found under %s (run from the workspace)' %
+                                tests)
+    out = subprocess.run(['python3', '-m', 'pytest', '-q', '-p', 'no:cacheprovider'] + files,
+                         capture_output=True, text=True, timeout=600)
+    last = (out.stdout.strip().splitlines() or [''])[-1]
+    return out.returncode == 0, 'oracle on 20 seeded edge states and reference values ' \
+        '(pytest %s): %s' % (' '.join(os.path.basename(f) for f in files), last), {}
+
+
 # ---------------------------------------------------------------- cases
 def build_cases(repeat):
     cases = []
@@ -829,6 +884,12 @@ def build_cases(repeat):
             kill=(('ROUTE', 'robot1', 'ESCORT', delay), 'safety_supervisor'))
     add('T18', 'FAULTS', check_goal_outcome('GOAL_ABORT', 'PLANNER_UNAVAILABLE'), 30,
         kill=(('SCENARIO_STARTED', 'scenario_runner', '', 0.0), 'route_planner'))
+    # Offline cases (no launch): T03 on unseen episodes, T11 against the independent oracle.
+    for test, variant, check in (('T03', 'demand_holdout', check_t03),
+                                 ('T11', 'route_oracle', check_t11)):
+        cases.append({'test': test, 'scenario': 'OFFLINE', 'variant': variant, 'seed': 1000,
+                      'mode': '-', 'duration': 0, 'check': check, 'kill': None,
+                      'record': False, 'offline': True})
     return cases
 
 
@@ -924,6 +985,10 @@ def run_end(start, duration, kill_wall=None):
 
 
 def _run_case(case, index, opts, lock, attempt):
+    if case.get('offline'):
+        ok, details, metrics = case['check']()
+        return dict(case_row(case), passed=bool(ok), details=details,
+                    failure_class='' if ok else 'application', **metrics)
     domain = opts.domain_base + index % 60           # valid ROS_DOMAIN_ID range is 0..101
     tag = 'm%05d' % (opts.tag_base + index) + 'r' * (attempt - 1)
     label = case['scenario'] + ('-' + case['variant'] if case['variant'] else '') + '-' + tag
@@ -1225,9 +1290,11 @@ def write_summary(rows, opts):
     lines += rate_section(rows, opts.runs_dir) + dispatch_section(rows) + stop_section(rows)
     lines += history_section(read_attempts(opts))
     lines += ['', '## Notes', '',
-              '- Verified outside this launch matrix: T03 (S2 prediction) offline on '
-              'held-out episodes (evidence/demand/evaluation.json, test_demand_model); the '
-              'T11 / T12 cost oracle in test_route_oracle and test_route_engine.',
+              '- T03 and T11 are offline cases of this matrix (no launch, scenario OFFLINE): '
+              'T03 regenerates the 30 unseen demand episodes (6 test + 24 further) and '
+              'compares the installed model with persistence per episode; T11 runs the '
+              'planner against the independent oracle on 20 seeded edge states. T11 / T12 '
+              'are also checked live in S6.',
               '- Crossing criteria use the strict ground-truth measures of metrics_logger '
               '(no grace interval): contact, token overlap, robot / bus together with '
               'another robot / bus or a car in C, and entry without the grant or onto a '
