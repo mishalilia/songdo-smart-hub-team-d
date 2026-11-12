@@ -729,8 +729,8 @@ def build_cases(repeat):
     add('T01/T02', 'S1', check_s1, 45)
     # S2 is the rising-demand episode of 9.4 (2 -> 6 -> 10 arrivals per minute), S8 the
     # step surge; both policies run on the same seeds for the paired comparison.
-    add('T04', 'S2', check_s2_dispatch, 240, seeds=seeds, mode='predictive')
-    add('T04', 'S2', check_s2_dispatch, 240, seeds=seeds, mode='reactive')
+    add('T04', 'S2', check_s2_dispatch, 360, seeds=seeds, mode='predictive')
+    add('T04', 'S2', check_s2_dispatch, 360, seeds=seeds, mode='reactive')
     add('T05', 'S3', check_dock_ok, 75, seeds=seeds, record=True)
     add('T05', 'S3', check_dock_disturbed, 85, variant='pedestrian_before_entry')
     add('T05', 'S3', check_dock_disturbed, 100, variant='blocked_bay')
