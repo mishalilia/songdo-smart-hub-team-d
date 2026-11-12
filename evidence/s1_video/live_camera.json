@@ -1,0 +1,26 @@
+{
+  "what": "live camera path: ros2 launch smart_hub s1_video.launch.py (video_source + passenger_detector, camera mode) on vtest.avi, 90 s per detector, one 8-CPU machine, nothing else running; CAMERA_FRAMES events of passenger_detector, cumulative at the last report",
+  "note": "video_source delivered about 5 frames per second, below the 10 fps of the file, while the detector ran; frames replaced before the detector took them are dropped (newest-frame policy), none expired",
+  "runs": {
+    "yolox": {
+      "received": 469,
+      "processed": 200,
+      "dropped": 268,
+      "expired": 0,
+      "acquisition_to_update_ms_p95": 708.7,
+      "p99": 876.3,
+      "n": 200,
+      "processed_share": 0.43
+    },
+    "hog": {
+      "received": 421,
+      "processed": 371,
+      "dropped": 49,
+      "expired": 0,
+      "acquisition_to_update_ms_p95": 352.3,
+      "p99": 448.7,
+      "n": 371,
+      "processed_share": 0.88
+    }
+  }
+}

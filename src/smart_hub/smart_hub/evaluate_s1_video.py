@@ -2,15 +2,19 @@
 """
 S1 video evaluation: run the camera path over a recorded video and compare with manual counts.
 
-    ros2 run smart_hub evaluate_s1_video --video vtest.avi --truth truth.csv
+    ros2 run smart_hub evaluate_s1_video --video vtest.avi --truth truth.csv --split split.json
+    ros2 run smart_hub evaluate_s1_video --video vtest.avi --truth truth.csv --split split.json \
+        --ablation
     ros2 run smart_hub evaluate_s1_video --video vtest.avi --sheet 5,10,15 --sheet-out sheet.png
 
-Each frame goes through CameraCounter (HOG detection, foot points, homography) and the same
-ZoneTracker that passenger_detector uses; the queue count at each truth time is compared with
-the manual count (CSV `time_sec,count[,occluded]`). Writes counts.csv and result.json (MAE,
-exact-match rate, MAE on the frames marked as partially occluded, false clears, detector
-time per frame with p95 / p99) to --out. The result is bound to its inputs by the SHA-256 of
-the video and of the label file, so a later detector is compared on the same frozen labels.
+Each frame goes through CameraCounter (--detector, default yolox; foot points, homography)
+and the same ZoneTracker that passenger_detector uses; the queue count at each truth time is
+compared with the manual count (CSV `time_sec,count[,occluded]`). Writes counts.csv and
+result.json (MAE, exact-match rate, MAE on the frames marked as partially occluded, false
+clears, detector time per frame with p95 / p99) to --out; with --split the metrics are also
+given separately for the development and the test part of the frozen split. --ablation runs
+every detector of camera_detector.DETECTORS on the same labels and writes ablation.json.
+The result is bound to its inputs by the SHA-256 of the video, the labels and the model.
 Precision/recall needs per-person box labels, which count annotations do not have.
 `--sheet` instead draws zone Q on frames at the given seconds, for counting people by hand.
 """
@@ -24,7 +28,7 @@ import time
 import cv2
 import numpy as np
 from smart_hub import hub_map
-from smart_hub.camera_detector import CameraCounter
+from smart_hub.camera_detector import CameraCounter, DETECTORS
 from smart_hub.metrics import percentile
 from smart_hub.tracker import ZoneTracker
 
@@ -79,53 +83,90 @@ def run(video, counter):
     return out, spent
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(description=__doc__.split('\n')[1])
-    parser.add_argument('--video', required=True)
-    parser.add_argument('--truth', help='CSV time_sec,count of manual counts')
-    parser.add_argument('--out', default=os.path.join('evidence', 's1_video'))
-    parser.add_argument('--sheet', help='comma-separated seconds: draw zone Q on those frames')
-    parser.add_argument('--sheet-out', default='s1_sheet.png')
-    opts, _ = parser.parse_known_args(args)
-    counter = CameraCounter()
-    if opts.sheet:
-        make_sheet(opts.video, [float(s) for s in opts.sheet.split(',')], opts.sheet_out,
-                   counter)
-        return
+def compare(counts, truth):
+    """Return the count metrics of `truth` [(t, manual, occluded)] against `counts`."""
+    pairs = []
+    for t, expected, occluded in truth:
+        got = min(counts, key=lambda c: abs(c[0] - t))[1]
+        pairs.append({'time_sec': t, 'manual': expected, 'system': got, 'occluded': occluded})
+    errors = [abs(p['manual'] - p['system']) for p in pairs]
+    occ = [abs(p['manual'] - p['system']) for p in pairs if p['occluded']]
+    clear = [abs(p['manual'] - p['system']) for p in pairs if not p['occluded']]
+    return {'samples': len(pairs), 'mae': round(sum(errors) / len(errors), 2),
+            'exact_match': round(sum(e == 0 for e in errors) / len(errors), 2),
+            'within_one': round(sum(e <= 1 for e in errors) / len(errors), 2),
+            'bias': round(sum(p['system'] - p['manual'] for p in pairs) / len(pairs), 2),
+            'occluded_frames': len(occ),
+            'mae_occluded': round(sum(occ) / len(occ), 2) if occ else None,
+            'mae_not_occluded': round(sum(clear) / len(clear), 2) if clear else None,
+            'false_clear': sum(p['system'] == 0 and p['manual'] > 0 for p in pairs)}, pairs
+
+
+def evaluate(opts, detector):
+    """Run one detector over the video; return (result, counts)."""
+    counter = CameraCounter(detector=detector)
     counts, ms = run(opts.video, counter)
-    if not counts:
-        parser.error('no frames could be read from %s' % opts.video)
-    os.makedirs(opts.out, exist_ok=True)
-    with open(os.path.join(opts.out, 'counts.csv'), 'w', newline='') as f:
-        csv.writer(f).writerows([('time_sec', 'count')] + [('%.1f' % t, c) for t, c in counts])
-    result = {'video': os.path.basename(opts.video), 'video_sha256': sha256(opts.video),
+    result = {'detector': detector, 'settings': DETECTORS[detector],
+              'video': os.path.basename(opts.video), 'video_sha256': sha256(opts.video),
               'frames': len(counts),
               'detector_ms_per_frame': round(sum(ms) / max(len(ms), 1), 1),
               'detector_ms_p95': round(percentile(ms, 95), 1),
               'detector_ms_p99': round(percentile(ms, 99), 1)}
+    if counter.model_path:
+        result.update(model=os.path.basename(counter.model_path),
+                      model_sha256=sha256(counter.model_path))
     if opts.truth:
         with open(opts.truth) as f:
             truth = [(float(r['time_sec']), int(r['count']), r.get('occluded') == '1')
                      for r in csv.DictReader(f)]
-        pairs = []
-        for t, expected, occluded in truth:
-            got = min(counts, key=lambda c: abs(c[0] - t))[1]
-            pairs.append({'time_sec': t, 'manual': expected, 'system': got,
-                          'occluded': occluded})
-        errors = [abs(p['manual'] - p['system']) for p in pairs]
-        occ = [abs(p['manual'] - p['system']) for p in pairs if p['occluded']]
-        clear = [abs(p['manual'] - p['system']) for p in pairs if not p['occluded']]
-        result.update(occluded_frames=len(occ),
-                      mae_occluded=round(sum(occ) / len(occ), 2) if occ else None,
-                      mae_not_occluded=round(sum(clear) / len(clear), 2) if clear else None,
-                      bias=round(sum(p['system'] - p['manual'] for p in pairs) / len(pairs), 2),
-                      false_clear=sum(p['system'] == 0 and p['manual'] > 0 for p in pairs),
-                      truth_sha256=sha256(opts.truth),
+        metrics, pairs = compare(counts, truth)
+        result.update(metrics, truth_sha256=sha256(opts.truth),
                       precision_recall='not available: count labels, no per-person boxes')
-        result.update(samples=len(pairs), mae=round(sum(errors) / len(errors), 2),
-                      exact_match=round(sum(e == 0 for e in errors) / len(errors), 2),
-                      within_one=round(sum(e <= 1 for e in errors) / len(errors), 2),
-                      comparison=pairs)
+        if opts.split:
+            with open(opts.split) as f:
+                cut = json.load(f)['development']['until_sec']
+            result.update(split_sha256=sha256(opts.split),
+                          development=compare(counts, [x for x in truth if x[0] <= cut])[0],
+                          test=compare(counts, [x for x in truth if x[0] > cut])[0])
+        result['comparison'] = pairs
+    return result, counts
+
+
+def main(args=None):
+    parser = argparse.ArgumentParser(description=__doc__.split('\n')[1])
+    parser.add_argument('--video', required=True)
+    parser.add_argument('--truth', help='CSV time_sec,count of manual counts')
+    parser.add_argument('--split', help='JSON of the frozen development / test split')
+    parser.add_argument('--detector', default='yolox', choices=sorted(DETECTORS))
+    parser.add_argument('--ablation', action='store_true',
+                        help='run every detector and write ablation.json')
+    parser.add_argument('--out', default=os.path.join('evidence', 's1_video'))
+    parser.add_argument('--sheet', help='comma-separated seconds: draw zone Q on those frames')
+    parser.add_argument('--sheet-out', default='s1_sheet.png')
+    opts, _ = parser.parse_known_args(args)
+    if opts.sheet:
+        counter = CameraCounter(detector=opts.detector)
+        make_sheet(opts.video, [float(s) for s in opts.sheet.split(',')], opts.sheet_out,
+                   counter)
+        return
+    os.makedirs(opts.out, exist_ok=True)
+    if opts.ablation:
+        rows = []
+        for detector in DETECTORS:
+            result, counts = evaluate(opts, detector)
+            if not counts:
+                parser.error('no frames could be read from %s' % opts.video)
+            rows.append({k: v for k, v in result.items() if k != 'comparison'})
+            print(json.dumps({k: rows[-1].get(k) for k in (
+                'detector', 'mae', 'detector_ms_p95', 'development', 'test')}))
+        with open(os.path.join(opts.out, 'ablation.json'), 'w') as f:
+            json.dump(rows, f, indent=2)
+        return
+    result, counts = evaluate(opts, opts.detector)
+    if not counts:
+        parser.error('no frames could be read from %s' % opts.video)
+    with open(os.path.join(opts.out, 'counts.csv'), 'w', newline='') as f:
+        csv.writer(f).writerows([('time_sec', 'count')] + [('%.1f' % t, c) for t, c in counts])
     with open(os.path.join(opts.out, 'result.json'), 'w') as f:
         json.dump(result, f, indent=2)
     print(json.dumps({k: v for k, v in result.items() if k != 'comparison'}))

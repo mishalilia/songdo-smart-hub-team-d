@@ -6,8 +6,9 @@ Synthetic-track baseline: tracks noisy foot-points from /sim/pedestrians (map fr
 counts confirmed tracks in Q and flags pedestrians in C. Publishes /hub/queue at 5 Hz with
 the observation timestamp; no fresh observation for stale_timeout_sec => valid=false.
 Camera path (input_mode:=camera): frames from image_topic go through camera_detector
-(HOG people detector, foot points, image-to-map homography) on a worker thread, newest
-frame first, and the resulting map points feed the same tracker; see evaluate_s1_video.
+(camera_detector:=yolox CNN by default, or the hog baseline; foot points, image-to-map
+homography) on a worker thread, newest frame first, and the resulting map points feed the
+same tracker; see evaluate_s1_video.
 A frame replaced before the detector took it is counted as dropped, one older than
 stale_timeout_sec when taken as expired; CAMERA_FRAMES reports both every 10 s together
 with the acquisition-to-tracker-update latency p95 / p99.
@@ -76,6 +77,8 @@ class PassengerDetector(Node):
         self.declare_parameter('crossing_clear_sec', 2.0)
         self.declare_parameter('input_mode', 'sim')          # sim | camera
         self.declare_parameter('image_topic', '/camera/video')
+        self.declare_parameter('camera_detector', 'yolox')    # yolox | hog | hog_midterm
+        self.declare_parameter('camera_model_path', '')       # '' = installed YOLOX model
         check_parameters(self)
 
         self.tracker = ZoneTracker(
@@ -87,7 +90,9 @@ class PassengerDetector(Node):
         self.frames = FrameLedger()
         if self.get_parameter('input_mode').value == 'camera':
             from smart_hub.camera_detector import CameraCounter
-            self.counter = CameraCounter()
+            self.counter = CameraCounter(
+                detector=self.get_parameter('camera_detector').value,
+                model_path=self.get_parameter('camera_model_path').value)
             self.create_subscription(Image, self.get_parameter('image_topic').value,
                                      self.on_image, SENSOR)
             threading.Thread(target=self.detect_loop, daemon=True).start()

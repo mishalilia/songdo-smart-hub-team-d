@@ -1,12 +1,14 @@
 # Author: Andrey Li (12250249)
 """S1 camera path (8.2): foot points, suppression, homography and an empty frame."""
 import numpy as np
-from smart_hub.camera_detector import (CameraCounter, foot_points, PETS_IMAGE_POINTS,
-                                       PETS_MAP_POINTS, suppress)
+import pytest
+from smart_hub.camera_detector import (CameraCounter, DETECTORS, foot_points,
+                                       PETS_IMAGE_POINTS, PETS_MAP_POINTS, suppress)
 
 
 def test_foot_point_is_bottom_centre():
     assert foot_points([(10, 20, 30, 60)]) == [(25.0, 80)]
+    assert foot_points([(10, 20, 30, 60)], 0.5) == [(25.0, 50.0)]
 
 
 def test_suppress_keeps_best_of_overlapping_boxes():
@@ -22,5 +24,12 @@ def test_homography_maps_calibration_points_and_back():
         assert np.allclose(got, want, atol=1e-2)
 
 
-def test_empty_frame_has_no_people():
-    assert CameraCounter().map_points(np.zeros((576, 768, 3), np.uint8)) == []
+@pytest.mark.parametrize('detector', sorted(DETECTORS))
+def test_empty_frame_has_no_people(detector):
+    counter = CameraCounter(detector=detector)
+    assert counter.map_points(np.zeros((576, 768, 3), np.uint8)) == []
+
+
+def test_unknown_detector_is_rejected():
+    with pytest.raises(ValueError):
+        CameraCounter(detector='cnn')
