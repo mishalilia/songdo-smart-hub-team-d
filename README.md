@@ -244,7 +244,11 @@ evaluator), unauthorized entry (`no_grant`: robot
 or bus entering without owning a fresh `/crossing/state`; `pedestrian_present`: entering
 while a pedestrian is inside; `car_against_owner`), token overlap, pedestrian response
 latency (pedestrian enters C → every robot / bus inside is at ground-truth standstill;
-budget 1000 ms; unresolved cases are counted), and contact (`COLLISION`).
+unresolved cases are counted), and contact (`COLLISION`). The response is held to the stop
+requirement of the assignment (16.3: zero command within 0.20 s), measured on the
+supervisor clock together with the measured standstill; the 10 Hz ground truth resolves only
+100 ms, so the harness's own pass threshold on it is a loose 1000 ms backstop, not a
+grace interval: no occupancy is removed from the count.
 `crossing_occupancy.csv` keeps every change of the occupant set. The midterm "conflict"
 definition (1 s grace) survives only as a labelled diagnostic and is not a pass criterion.
 
@@ -252,8 +256,9 @@ definition (1 s grace) survives only as a labelled diagnostic and is not a pass 
 `STOP_LATCHED latency_ms`, monotonic interval inside `safety_supervisor` from receipt of the
 stop input to publication of the zero command; (2) *measured standstill* —
 `STANDSTILL_MEASURED`, from the same receipt to receipt of the first pose observation below
-the standstill speed (budget 1000 ms; monotonic; `observer_delay_ms` = receipt − observation
-stamp is reported next to it); (3) *route stop* —
+the standstill speed (reported against the 0.20 s stop requirement; harness backstop
+1000 ms; monotonic; `observer_delay_ms` = receipt − observation stamp is reported next to
+it); (3) *route stop* —
 `ROUTE_STOP_MEASURED`, from a `REROUTE` / `NO_ROUTE` event to ground-truth standstill
 (budget 500 ms, 10 Hz truth); motion after `NO_ROUTE` is a `MOTION_WITHOUT_ROUTE` finding.
 `summary.md` lists each with its clock domain.
@@ -345,7 +350,7 @@ Submitted revision: the matrix below ran on commit `eca7d17` (harness 2.3: 116 c
 launches in parallel on one 8-CPU machine, `evidence/test_matrix/summary.md`): **116/116
 passed on the first attempt**, no re-runs. Every run passed the graph audit (14 nodes, one
 publisher and the specified QoS per topic, lowest measured rate 89 % of nominal).
-`colcon test` on the same commit: 132 tests, 0 failures. The whole-graph load sweep and the
+`colcon test` on the same commit: 132 tests (unit, lint, launch), 0 failures. The whole-graph load sweep and the
 scenario clips, the S1 video evaluation (`evidence/s1_video/`) and the simulator-core
 benchmark were produced on the same commit. Commits after `eca7d17` add only the
 evidence of these runs and documentation; no source file changes.
@@ -374,15 +379,15 @@ the midterm criteria and are not comparable with the rows above. Run records of 
 | Item | Result (matrix `M20261112-171643` on `eca7d17` unless stated) |
 |------|--------|
 | S1 queue counting (simulated camera) | stable counts 0 → 3 → 5 → 4; UNKNOWN 1.07 s after camera freeze (T02 limit 1.2 s) |
-| S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames; `evidence/s1_video/`) | **YOLOX-s: MAE 0.46 on the 54 held-out test frames, 0.52 on all 108 (target ≤ 1 met)**; exact 63 % / within ±1 91 % on the test part; MAE 1.00 on partially occluded frames; 6 frames reported empty with people present (midterm HOG: 36). Ablation on the same test frames: midterm HOG 1.11, HOG with re-chosen thresholds 0.93. Detector time per frame on the tested revision: YOLOX 493 ms (p95 536, p99 551), HOG p95 287 ms |
-| S1 live camera path (`live_camera.json`, 90 s) | YOLOX processes 33 % of received frames (newest-frame policy, the rest dropped, none expired), acquisition → tracker update p95 0.85 s, p99 0.94 s — inside the 1.0 s freshness limit with little margin; HOG 80 %, 0.38 / 0.46 s (an earlier run on the same detector code: YOLOX 43 %, 0.71 / 0.88 s) |
+| S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames; `evidence/s1_video/`) | **YOLOX-s: MAE 0.46 on the 54 held-out test frames, 0.52 on all 108 (target ≤ 1 met)**; exact 63 % / within ±1 91 % on the test part; MAE 1.00 on partially occluded frames; 6 frames reported empty with people present (midterm HOG: 36). Ablation on the same test frames: midterm HOG 1.11, HOG with re-chosen thresholds 0.93 (both detectors meet the target). On partially occluded frames YOLOX is not better than the re-tuned HOG: all 22 occluded frames 1.00 vs 0.91 (midterm HOG 1.59); the 6 occluded test frames 1.00 vs 0.83. The samples are small (one video, 54 test frames, 6 occluded). Detector time per frame on the tested revision: YOLOX 493 ms (p95 536, p99 551), HOG p95 287 ms |
+| S1 live camera path (`live_camera.json`, 90 s) | YOLOX processes 33 % of received frames (newest-frame policy, the rest dropped, none expired), acquisition → tracker update p95 0.85 s, p99 0.94 s — inside the 1.0 s freshness limit with little margin; HOG 80 %, 0.38 / 0.46 s (an earlier run on the same detector code: YOLOX 43 %, 0.71 / 0.88 s). YOLOX is the default because it halves the count error overall (test MAE 0.46 vs 0.93, all 108 frames 0.52 vs 0.85); on this CPU, for a live camera, `detector:=hog` keeps a 2× latency margin and still meets the MAE target |
 | S2 demand forecast (T03, offline case of the matrix) | test MAE 1.75 vs persistence 2.07 (6 episodes); on all 30 unseen episodes (6 test + 24 further) paired Δ −0.23, 95 % interval −0.35 .. −0.11, model better in 24 of 30; inference p95 0.007 ms |
 | S3 bus docking (10 runs) | position error 0.107 ± 0.018 m (max 0.13, limit 0.20), yaw 0.015 ± 0.063 rad (within ±0.13, limit 0.17), ETA error at 5 m −0.82 ± 0.19 s; cancel → zero command 100 ms |
 | S4 parking (20 simultaneous pairs) | 40 grants, 0 double allocations, service p95 24.1 ms |
 | S5 congestion | CONGESTED 0.06 s, UNKNOWN 0.96 s, BLOCKED 0.06 s after the stimulus; precision 1.00, recall 1.00; 0 false labels in 10 free-flow runs |
-| S6 routing on the live graph (T11 / T12) | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: detect 106 ms, react 58 ms, standstill 86 ms, replan 398 ms, held at standstill; planning p95 0.31 ms. Offline T11: planner = independent oracle on 20 seeded edge states |
+| S6 routing on the live graph (T11 / T12) | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: detect 106 ms, react 58 ms, standstill 86 ms, replan 398 ms, held at standstill; route computation p95 0.31 ms in this run (median of the per-run p95 over the 20 S8 runs: 0.29 ms). Offline T11: planner = independent oracle on 20 seeded edge states |
 | S7 robot escort (10 runs) | all arrived, arrival error 0.096 ± 0.002 m; in every run the active edge Cs–J is blocked and the route changes (R–W–Cn–Cs–J–D → … Cn–B–U–E–J–D); standstill 89 ± 31 ms after the replan decision (budget 500 ms) |
-| S8 integrated hub (10 + 10 runs) | **Hub-caused incompatible occupancy of C: 0** — 0 contacts, 0 unauthorized entries (no grant, onto a pedestrian, car against owner), 0 token overlaps, 0 robot/bus–robot/bus or robot/bus–car occupancy, 0 robot/bus + pedestrian episodes caused by the hub. Pedestrian intrusions (the scripted pedestrian appears inside C at 80 s while the bus already owns and occupies it, the 15.1 stimulus): 10 in the predictive runs, 0 in the reactive runs (the bus has passed C earlier); every one answered by a measured standstill 12–102 ms later on the supervisor clock (100–300 ms on the 10 Hz ground truth; budget 1000 ms), none unresolved |
+| S8 integrated hub (10 + 10 runs) | **Strict occupancy of C (any two users at once, ground truth, no grace): 10 episodes, all of them the scripted pedestrian of the 15.1 stimulus** appearing inside C at 80 s while the bus already owns and occupies it (one per predictive run; 0 in the reactive runs, where the bus has passed C earlier). By pair: robot/bus + pedestrian 10, robot/bus + robot/bus 0, robot/bus + car 0, car + pedestrian 0, car + car 0. Hub-caused: 0 — 0 contacts, 0 entries without a grant, 0 entries onto a pedestrian, 0 car entries against the owner, 0 token overlaps. Response to each intrusion against the 0.20 s stop requirement: zero command 0.31–0.84 ms, measured standstill 12–102 ms (supervisor clock); 100–300 ms on the 10 Hz ground truth; none unresolved |
 | S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | zero command 0.23–4.95 ms after e-stop receipt (requirement 200 ms); measured standstill 46 ± 9 ms, observer delay 1.2–8.0 ms; every fault stops or aborts safely |
 | Node kills (10 runs + planner) | zero output 0.53 ± 0.03 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
 | Dispatch service (re-arm after a served mission) | S8: 120 boarded per policy in 10 episodes (midterm: 40), completion rate 0.68 / 0.71 (midterm 0.24); all-passenger wait lower bound 137–140 s (midterm 165 s) |
