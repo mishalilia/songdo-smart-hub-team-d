@@ -1,0 +1,4 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.007,scenario_runner,ESCORT_REJECTED,,4be1d786091e4e1e9f8539f04d70116b
+0.065,robot1,GOAL_ACCEPTED,escort,fault-01
+0.069,robot1,GOAL_ACCEPTED,escort,fault-01

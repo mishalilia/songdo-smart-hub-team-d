@@ -1,0 +1,36 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.084,scenario_runner,ESCORT_ACCEPTED,,d2a54c30663e4f6e800a25007e1188a9
+-0.069,robot,ROUTE_COMPUTED,R->R OK path=R cost=0.000s excluded=- edges_age_ms=316 crossing_wait=0.0s latency_ms=0.23,
+-0.067,robot,ROUTE_COMPUTED,R->R OK path=R cost=0.000s excluded=- edges_age_ms=317 crossing_wait=0.0s latency_ms=0.27,
+-0.040,robot,ROUTE_COMPUTED,R->R OK path=R cost=0.000s excluded=- edges_age_ms=345 crossing_wait=0.0s latency_ms=0.20,
+-0.034,robot,ROUTE_COMPUTED,R->R OK path=R cost=0.000s excluded=- edges_age_ms=351 crossing_wait=0.0s latency_ms=0.18,
+-0.019,robot1,ROUTE,TO_PICKUP R cost=0.0s gen=1,fault-01
+-0.005,robot1,ROUTE,TO_PICKUP R cost=0.0s gen=1,fault-01
+0.024,robot1,PICKUP_ARRIVED,waiting for /robot/confirm_ready,fault-01
+0.045,robot1,PICKUP_ARRIVED,waiting for /robot/confirm_ready,fault-01
+1.876,robot1,READY_CONFIRMED,,fault-01
+1.890,robot1,READY_CONFIRMED,,fault-01
+1.896,robot1,CONFIRM_READY_OK,READY_ACCEPTED latency_ms=21.02,
+1.947,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=334 crossing_wait=0.0s latency_ms=0.20,
+1.950,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=337 crossing_wait=0.0s latency_ms=0.20,
+1.970,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=357 crossing_wait=0.0s latency_ms=0.18,
+1.971,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=357 crossing_wait=0.0s latency_ms=0.23,
+1.992,robot1,ROUTE,ESCORT R-W-Cn-Cs-J-D cost=31.4s gen=2,fault-01
+2.020,robot1,ROUTE,ESCORT R-W-Cn-Cs-J-D cost=31.4s gen=2,fault-01
+2.092,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=28 crossing_wait=0.0s latency_ms=0.22,
+2.092,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=28 crossing_wait=0.0s latency_ms=0.23,
+2.121,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=9 crossing_wait=0.0s latency_ms=0.21,
+2.122,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=10 crossing_wait=0.0s latency_ms=0.18,
+2.872,scenario_runner,INJECT,disconnect_slot_sensor,
+9.971,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=359 crossing_wait=0.0s latency_ms=0.32,
+9.971,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=359 crossing_wait=0.0s latency_ms=0.27,
+9.994,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=381 crossing_wait=0.0s latency_ms=0.19,
+9.994,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=382 crossing_wait=0.0s latency_ms=0.21,
+10.071,robot1,CROSSING_GRANTED,latency_ms=0.09,c4f7c1b2a9e548a8a487b7269a44ef64
+10.071,robot1,CROSSING_GRANTED,latency_ms=0.10,bcd4f75fdc82492c9c0244332e07d017
+10.120,robot1,CROSSING_ACQUIRED,,bcd4f75fdc82492c9c0244332e07d017
+10.123,crossing,CROSSING_OWNED,robot1,
+10.125,crossing,CROSSING_OWNED,robot1,
+10.151,robot1,CROSSING_ACQUIRED,,c4f7c1b2a9e548a8a487b7269a44ef64
+10.670,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+10.692,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
