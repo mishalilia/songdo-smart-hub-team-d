@@ -113,16 +113,25 @@ def test_pedestrian_in_crossing_needs_an_intrusion_and_a_measured_stop():
 
 def test_lead_section_groups_seeds_by_the_forecast_lead():
     def run(first, wait):
-        return {'first_dispatch_s': first, 'wait_all_lower_bound_mean_s': wait, 'arrived': 22}
+        return {'first_dispatch_s': first, 'wait_all_lower_bound_mean_s': wait,
+                'arrival_times': '12.84;31.89;165.76'}
     by_mode = {'predictive': {'1': run(100.0, 120.0), '2': run(90.0, 130.0),
                               '3': run(80.0, 140.0)},
                'reactive': {'1': run(110.0, 125.0), '2': run(90.5, 130.0),
                             '3': run(70.0, 135.0)}}
     lines = test_matrix.lead_section(by_mode, ['1', '2', '3'])
-    assert '3 of 3 pairs saw the same number of arrivals' in lines[1]
+    assert 'in 3 of 3 pairs' in lines[1]
     assert lines[-3].startswith('| forecast earlier (lead >= 1 s) | 1 | 10.0 | -5.0 | 1 |')
     assert lines[-2].startswith('| simultaneous (|lead| < 1 s) | 1 | 0.5 | +0.0 | 0 |')
     assert lines[-1].startswith('| forecast later (lead <= -1 s) | 1 | -10.0 | +5.0 | 0 |')
+
+
+def test_same_arrivals_compares_every_attempt_within_one_step():
+    same = test_matrix.same_arrivals
+    assert same('12.84;31.89;165.76', '12.81;31.86;165.79')
+    assert not same('12.84;31.89;165.76', '12.84;31.89')            # one arrival missing
+    assert not same('12.84;31.89;165.76', '12.84;33.10;165.76')     # shifted stream
+    assert not same('', '')                                          # nothing recorded
 
 
 def test_domain_pool_never_hands_out_a_domain_in_use():

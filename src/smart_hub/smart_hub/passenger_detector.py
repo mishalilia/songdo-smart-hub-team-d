@@ -101,6 +101,8 @@ class PassengerDetector(Node):
             self.create_subscription(PoseArray, '/sim/pedestrians', self.on_pedestrians, R10)
         self.create_subscription(HubEvent, '/hub/events', self.on_event, R10)
         self.create_timer(0.2, self.tick)
+        # 5.742: invalidate 1 s after the last observation, not at the next 5 Hz publication.
+        self.create_timer(0.05, self.watch_stale)
 
         self.last_stamp = None          # observation stamp of the newest frame
         self.last_receipt = -1e9        # monotonic receipt time of the newest frame
@@ -158,13 +160,21 @@ class PassengerDetector(Node):
         with self.lock:                    # the camera worker updates the tracker too
             self._tick()
 
+    def fresh(self):
+        return time.monotonic() - self.last_receipt <= \
+            self.get_parameter('stale_timeout_sec').value
+
+    def watch_stale(self):
+        """Publish the invalid state within 50 ms of the freshness limit."""
+        with self.lock:
+            if self.last_state is not None and self.last_state[0] and not self.fresh():
+                self._tick()
+
     def _tick(self):
         msg = QueueState()
         msg.header.frame_id = 'map'
         msg.zone_id = 'Q'
-        fresh = time.monotonic() - self.last_receipt <= \
-            self.get_parameter('stale_timeout_sec').value
-        if self.last_stamp is None or not fresh:
+        if self.last_stamp is None or not self.fresh():
             # Never relabel an old frame as a new observation.
             msg.header.stamp = self.last_stamp or self.get_clock().now().to_msg()
             msg.valid = False

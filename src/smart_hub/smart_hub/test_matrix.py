@@ -338,6 +338,23 @@ def wait_metrics(summary):
             'completion_rate': queue['completion_rate']}
 
 
+ARRIVAL_MATCH_SEC = 0.25    # same simulator step, seen through ROS event stamps
+
+
+def arrival_times(ev):
+    """Return the times of every arrival attempt (entered Q or balked at a full Q)."""
+    return ';'.join('%.2f' % e['t'] for e in ev
+                    if e['event'] in ('QUEUE_ENTERED', 'QUEUE_BALKED'))
+
+
+def same_arrivals(a, b):
+    """Tell whether two runs saw the same arrival attempts (common random numbers, 9.4)."""
+    ta = [float(x) for x in (a or '').split(';') if x]
+    tb = [float(x) for x in (b or '').split(';') if x]
+    return bool(ta) and len(ta) == len(tb) and \
+        all(abs(x - y) <= ARRIVAL_MATCH_SEC for x, y in zip(ta, tb))
+
+
 def first_dispatch_s(ev):
     hit = first(ev, 'DISPATCH_REQUESTED', 'bus1')
     return hit['t'] if hit else None
@@ -360,7 +377,7 @@ def check_s2_dispatch(ev, summary):
         '%s s' % (reasons, overlaps, queue['boarded'], queue['arrived'],
                   '%.1f' % wait['mean'] if wait.get('n') else '-'), \
         dict(wait_metrics(summary), dispatches=len(reasons),
-             first_dispatch_s=first_dispatch_s(ev))
+             first_dispatch_s=first_dispatch_s(ev), arrival_times=arrival_times(ev))
 
 
 def check_dock_ok(ev, summary, eta_required=True):
@@ -594,7 +611,9 @@ def check_s8(ev, summary):
             '%.1f' % everyone['mean'] if everyone.get('n') else '-')
     if problems:
         detail += '; FAILED: ' + '; '.join(problems)
-    return not problems, detail, dict(wait_metrics(summary), first_dispatch_s=first_dispatch_s(ev))
+    values = dict(wait_metrics(summary), first_dispatch_s=first_dispatch_s(ev),
+                  arrival_times=arrival_times(ev))
+    return not problems, detail, values
 
 
 def check_s9(ev, summary):
@@ -1259,8 +1278,8 @@ def lead_section(by_mode, seeds):
 
     Lead = first dispatch of the reactive run - first dispatch of the predictive run on the
     same seed. Seeds are grouped as forecast earlier / simultaneous / forecast later, and the
-    all-passenger wait difference is reported per group. Equal arrival counts per pair show
-    that both policies saw the same passengers (common random numbers).
+    all-passenger wait difference is reported per group. Matching arrival attempts per pair
+    (same_arrivals) show that both policies saw the same passengers (common random numbers).
     """
     key = 'wait_all_lower_bound_mean_s'
     pairs = []
@@ -1269,15 +1288,17 @@ def lead_section(by_mode, seeds):
         if p.get('first_dispatch_s') in (None, '') or r.get('first_dispatch_s') in (None, ''):
             continue
         pairs.append((float(r['first_dispatch_s']) - float(p['first_dispatch_s']),
-                      float(p[key]) - float(r[key]), p.get('arrived') == r.get('arrived')))
+                      float(p[key]) - float(r[key]),
+                      same_arrivals(p.get('arrival_times'), r.get('arrival_times'))))
     if not pairs:
         return []
     groups = (('forecast earlier (lead >= %.0f s)' % LEAD_TIE_SEC, lambda x: x >= LEAD_TIE_SEC),
               ('simultaneous (|lead| < %.0f s)' % LEAD_TIE_SEC, lambda x: abs(x) < LEAD_TIE_SEC),
               ('forecast later (lead <= -%.0f s)' % LEAD_TIE_SEC, lambda x: x <= -LEAD_TIE_SEC))
+    same = sum(match for _, _, match in pairs)
     lines = ['', 'Conditions: seeds grouped by the lead of the first dispatch (reactive minus '
-             'predictive time; %d of %d pairs saw the same number of arrivals):' % (
-                 sum(same for _, _, same in pairs), len(pairs)), '',
+             'predictive time). Identical arrival attempts (entered or balked, all within '
+             '%.2f s) in %d of %d pairs:' % (ARRIVAL_MATCH_SEC, same, len(pairs)), '',
              '| Group | Seeds | Median lead (s) | Mean all-passenger delta (s) | '
              'Predictive lower |', '|---|---|---|---|---|']
     for name, test in groups:
