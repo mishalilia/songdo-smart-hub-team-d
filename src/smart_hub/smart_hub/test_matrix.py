@@ -52,7 +52,8 @@ from smart_hub.metrics import parse_latency_ms, percentile
 #      pedestrian or without a grant (hub-caused, must be zero). Matrix M20261112-054841 was
 #      re-evaluated with it; no runs were repeated.
 # 2.3  T03 and T11 run inside the matrix as offline cases with attempt IDs.
-HARNESS_VERSION = '2.3'
+# 2.4  dispatch policies compared on 2 x repeat paired seeds (second half = confirmation).
+HARNESS_VERSION = '2.4'
 TRANSPORT_ENV = {'FASTDDS_BUILTIN_TRANSPORTS': 'UDPv4'}    # kept if already set by the caller
 MAX_ATTEMPTS = 2           # the second one only after an infrastructure failure
 RECORD_FILES = ('events.csv', 'summary.json', 'params.json', 'crossing_occupancy.csv',
@@ -840,8 +841,11 @@ def build_cases(repeat):
     add('T01/T02', 'S1', check_s1, 45)
     # S2 is the rising-demand episode of 9.4 (2 -> 6 -> 10 arrivals per minute), S8 the
     # step surge; both policies run on the same seeds for the paired comparison.
-    add('T04', 'S2', check_s2_dispatch, 360, seeds=seeds, mode='predictive')
-    add('T04', 'S2', check_s2_dispatch, 360, seeds=seeds, mode='reactive')
+    # Policy comparison on 2 x repeat paired seeds: seeds 1..repeat showed the late-dispatch
+    # defect that the observed floor removes; seeds repeat+1..2*repeat confirm it.
+    policy_seeds = tuple(range(1, 2 * repeat + 1))
+    add('T04', 'S2', check_s2_dispatch, 360, seeds=policy_seeds, mode='predictive')
+    add('T04', 'S2', check_s2_dispatch, 360, seeds=policy_seeds, mode='reactive')
     add('T05', 'S3', check_dock_ok, 75, seeds=seeds, record=True)
     add('T05', 'S3', check_dock_disturbed, 85, variant='pedestrian_before_entry')
     add('T05', 'S3', check_dock_disturbed, 100, variant='blocked_bay')
@@ -866,8 +870,8 @@ def build_cases(repeat):
     add('T14', 'S7', check_goal_outcome(
         'GOAL_SUCCEED', 'ARRIVED', lambda ev: bool(first(ev, 'REPLAN_CONGESTION', 'robot1'))),
         120, variant='congestion')
-    add('T15', 'S8', check_s8, 300, seeds=seeds, mode='predictive', record=True)
-    add('T15', 'S8', check_s8, 300, seeds=seeds, mode='reactive')
+    add('T15', 'S8', check_s8, 300, seeds=policy_seeds, mode='predictive', record=True)
+    add('T15', 'S8', check_s8, 300, seeds=policy_seeds, mode='reactive')
     add('T16', 'S9', check_s9, 45, record=True)
     # Each fault five times at different mission phases (16.3).
     phases = ('waiting', 'to_crossing', 'in_crossing', 'after_crossing', 'near_destination')
@@ -1169,6 +1173,12 @@ def dispatch_scenario_section(rows, scenario, label):
         lines.append('| %s | %d | %+.1f | %+.1f .. %+.1f | %d of %d |' % (
             name, b['n'], b['mean'], b['ci95_low'], b['ci95_high'],
             sum(d < 0 for d in deltas), len(deltas)))
+        if len(deltas) >= 20:                 # second half: the confirmation seeds
+            half = deltas[len(deltas) // 2:]
+            c = paired_bootstrap(half)
+            lines.append('| %s, seeds %s-%s only | %d | %+.1f | %+.1f .. %+.1f | %d of %d |' % (
+                name, seeds[len(deltas) // 2], seeds[-1], c['n'], c['mean'], c['ci95_low'],
+                c['ci95_high'], sum(d < 0 for d in half), len(half)))
     lines += ['', 'Per-seed delta of the boarded wait (s): ' + ', '.join(
         'seed %s %+.1f' % (s, float(by_mode['predictive'][s]['queue_wait_mean_s']) -
                            float(by_mode['reactive'][s]['queue_wait_mean_s'])) for s in seeds)]

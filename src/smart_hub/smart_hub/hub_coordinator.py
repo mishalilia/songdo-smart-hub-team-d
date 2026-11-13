@@ -47,6 +47,7 @@ class HubCoordinator(Node):
         self.declare_parameter('crossing_lease_sec', 2.0)
         self.declare_parameter('dispatch_mode', 'predictive')   # predictive | reactive
         self.declare_parameter('dispatch_rearm_after_service', True)
+        self.declare_parameter('dispatch_observed_floor', True)
         check_parameters(self)
 
         self.arbiter = CrossingArbiter(
@@ -64,7 +65,8 @@ class HubCoordinator(Node):
             high=self.get_parameter('dispatch_high').value,
             low=self.get_parameter('dispatch_low').value,
             cooldown_sec=self.get_parameter('dispatch_cooldown_sec').value,
-            rearm_after_service=self.get_parameter('dispatch_rearm_after_service').value)
+            rearm_after_service=self.get_parameter('dispatch_rearm_after_service').value,
+            observed_floor=self.get_parameter('dispatch_observed_floor').value)
         self.bus_state = (None, -1e9)
         self.dock_goal = None          # outstanding DockBus goal handle (or 'SENT')
 

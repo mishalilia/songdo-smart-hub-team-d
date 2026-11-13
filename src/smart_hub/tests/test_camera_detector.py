@@ -30,6 +30,11 @@ def test_empty_frame_has_no_people(detector):
     assert counter.map_points(np.zeros((576, 768, 3), np.uint8)) == []
 
 
+def test_yolox_profiles_differ_only_in_input_and_thresholds():
+    assert DETECTORS['yolox']['input'] == 320 and DETECTORS['yolox640']['input'] == 640
+    assert CameraCounter(detector='yolox').yolox.size == 320
+
+
 def test_unknown_detector_is_rejected():
     with pytest.raises(ValueError):
         CameraCounter(detector='cnn')

@@ -6,6 +6,10 @@ Request one DockBus mission when the forecast is >= dispatch_high for three cons
 valid predictions and the bus is available; with an unavailable forecast fall back to the
 fresh observed queue (reason FALLBACK). One outstanding goal at a time, a request cooldown,
 and hysteresis: escalation clears only after five consecutive samples below dispatch_low.
+With observed_floor (decision-aware use of the forecast), a fresh observed queue >= high also
+triggers in predictive mode (reason OBSERVED): the forecast may make a dispatch earlier, never
+later than the observation already justifies. A model fitted for MAE under-predicts a rising
+queue, so without the floor it delayed the first dispatch by up to 40 s in S2.
 With rearm_after_service, a mission that ended with passengers boarded also clears it: the
 escalated demand was served, and a queue that is still high has to be confirmed again by
 three new consecutive predictions (or the fallback rule) before the next request. Without
@@ -37,8 +41,9 @@ def forecast_problem(valid, horizon_sec, model_id, stamp, now, last_stamp=None,
 class DispatchPolicy:
 
     def __init__(self, high=6.0, low=4.0, cooldown_sec=30.0, consecutive=3, clear_after=5,
-                 rearm_after_service=False):
+                 rearm_after_service=False, observed_floor=False):
         self.high, self.low = high, low
+        self.observed_floor = observed_floor
         self.rearm_after_service = rearm_after_service
         self.cooldown_sec = cooldown_sec
         self.consecutive = consecutive
@@ -58,11 +63,15 @@ class DispatchPolicy:
 
     def update(self, now, prediction_valid, predicted, queue_valid, queue_count,
                bus_available, outstanding):
-        """Return 'PREDICTED' or 'FALLBACK' when a mission should be requested, else None."""
+        """Return 'PREDICTED', 'OBSERVED' or 'FALLBACK' to request a mission, else None."""
         if prediction_valid:
             value, reason = predicted, 'PREDICTED'
             self.high_streak = self.high_streak + 1 if predicted >= self.high else 0
             trigger = self.high_streak >= self.consecutive
+            if self.observed_floor and queue_valid:
+                value = max(predicted, queue_count)
+                if not trigger and queue_count >= self.high:
+                    trigger, reason = True, 'OBSERVED'
         elif queue_valid:
             value, reason = queue_count, 'FALLBACK'
             self.high_streak = 0

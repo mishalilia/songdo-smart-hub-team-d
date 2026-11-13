@@ -8,10 +8,11 @@ turns into map coordinates. The map points then go to the same ZoneTracker as th
 detections, so counting rules do not change.
 
 Detectors (DETECTORS): `yolox` (default) is the YOLOX-s CNN of the OpenCV Model Zoo
-(models/yolox_s_2022nov.onnx, Apache-2.0); `hog` is OpenCV's HOG people detector, kept as
-the reproducible baseline, and `hog_midterm` the HOG settings of the midterm. Thresholds and
-foot ratios were chosen on the development part of the labelled video only
-(evidence/s1_video/split.json, ablation_plan.json).
+(models/yolox_s_2022nov.onnx, Apache-2.0) on a 320 x 320 input; `yolox640` the same model on
+640 x 640 (first round, about three times slower); `hog` is OpenCV's HOG people detector,
+kept as the reproducible baseline, and `hog_midterm` the HOG thresholds of the midterm.
+Inputs, thresholds and foot ratios were chosen on the development part of the labelled video
+only (evidence/s1_video/split.json, ablation_plan.json).
 """
 import os
 
@@ -30,7 +31,10 @@ PETS_UPSCALE = 2.5
 # Frozen settings per detector: score threshold, NMS overlap, smallest box height (px) and
 # the height fraction of the foot point (HOG boxes carry a margin below the feet).
 DETECTORS = {
-    'yolox': {'min_score': 0.1, 'nms_iou': 0.6, 'min_height': 30.0, 'foot_ratio': 0.95},
+    'yolox': {'min_score': 0.1, 'nms_iou': 0.5, 'min_height': 30.0, 'foot_ratio': 0.90,
+              'input': 320},
+    'yolox640': {'min_score': 0.1, 'nms_iou': 0.6, 'min_height': 30.0, 'foot_ratio': 0.95,
+                 'input': 640},
     'hog': {'min_score': 0.2, 'nms_iou': 0.3, 'min_height': 0.0, 'foot_ratio': 0.85},
     'hog_midterm': {'min_score': 0.3, 'nms_iou': 0.4, 'min_height': 0.0, 'foot_ratio': 1.0},
 }
@@ -128,16 +132,16 @@ class CameraCounter:
         self.min_score = self.settings['min_score']
         self.roi, self.upscale = roi, upscale
         self.model_path = ''
-        if detector == 'yolox':
+        if detector.startswith('yolox'):
             self.model_path = model_path or default_model_path()
-            self.yolox = Yolox(self.model_path)
+            self.yolox = Yolox(self.model_path, self.settings['input'])
         else:
             self.hog = cv2.HOGDescriptor()
             self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
 
     def detect(self, frame):
         """Return pedestrian boxes (x, y, w, h) in pixels."""
-        if self.detector == 'yolox':
+        if self.detector.startswith('yolox'):
             boxes, scores = self.yolox.detect(frame, self.min_score)
         else:
             boxes, scores = self._detect_hog(frame)

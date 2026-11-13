@@ -77,7 +77,7 @@ class PassengerDetector(Node):
         self.declare_parameter('crossing_clear_sec', 2.0)
         self.declare_parameter('input_mode', 'sim')          # sim | camera
         self.declare_parameter('image_topic', '/camera/video')
-        self.declare_parameter('camera_detector', 'yolox')    # yolox | hog | hog_midterm
+        self.declare_parameter('camera_detector', 'yolox')    # see camera_detector.DETECTORS
         self.declare_parameter('camera_model_path', '')       # '' = installed YOLOX model
         check_parameters(self)
 

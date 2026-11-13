@@ -65,6 +65,21 @@ def test_served_mission_rearms_dispatch_only_when_enabled():
         assert p.update(43, True, 8.0, True, 8, True, False) is None
 
 
+def test_observed_floor_never_lets_the_forecast_delay_a_dispatch():
+    late = DispatchPolicy(high=6, low=4, cooldown_sec=30)
+    floor = DispatchPolicy(high=6, low=4, cooldown_sec=30, observed_floor=True)
+    # forecast still below 6 while seven people already wait
+    assert late.update(0, True, 4.5, True, 7, True, False) is None
+    assert floor.update(0, True, 4.5, True, 7, True, False) == 'OBSERVED'
+    # a stale or invalid queue gives no floor
+    other = DispatchPolicy(high=6, low=4, cooldown_sec=30, observed_floor=True)
+    assert other.update(0, True, 4.5, False, 7, True, False) is None
+    # three high forecasts still dispatch before the queue reaches 6
+    early = DispatchPolicy(high=6, low=4, cooldown_sec=30, observed_floor=True)
+    assert [early.update(t, True, 7.0, True, 3, True, False) for t in range(3)][-1] == \
+        'PREDICTED'
+
+
 def test_dispatch_fallback_and_invalid_inputs():
     p = DispatchPolicy()
     assert p.update(0, False, 0.0, False, 0, True, False) is None     # nothing valid

@@ -17,7 +17,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('video', description='path of the video file'),
         DeclareLaunchArgument('detector', default_value='yolox',
-                              description='yolox (CNN), hog (baseline) or hog_midterm'),
+                              description='yolox (CNN, 320), yolox640, hog or hog_midterm'),
         Node(package='smart_hub', executable='video_source', name='video_source',
              parameters=[{'video_path': video}]),
         Node(package='smart_hub', executable='passenger_detector', name='passenger_detector',
