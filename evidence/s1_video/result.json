@@ -2,51 +2,52 @@
   "detector": "yolox",
   "settings": {
     "min_score": 0.1,
-    "nms_iou": 0.6,
+    "nms_iou": 0.5,
     "min_height": 30.0,
-    "foot_ratio": 0.95
+    "foot_ratio": 0.9,
+    "input": 320
   },
   "video": "vtest.avi",
   "video_sha256": "45cddc9490be69345cbdab64ca583be65987e864ca408038e648db99e10516cf",
   "frames": 795,
-  "detector_ms_per_frame": 536.3,
-  "detector_ms_p95": 558.3,
-  "detector_ms_p99": 573.3,
+  "detector_ms_per_frame": 117.4,
+  "detector_ms_p95": 130.2,
+  "detector_ms_p99": 138.7,
   "model": "yolox_s_2022nov.onnx",
   "model_sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
   "samples": 108,
-  "mae": 0.52,
-  "exact_match": 0.57,
-  "within_one": 0.91,
-  "bias": -0.17,
+  "mae": 0.42,
+  "exact_match": 0.66,
+  "within_one": 0.94,
+  "bias": 0.14,
   "occluded_frames": 22,
-  "mae_occluded": 1.0,
-  "mae_not_occluded": 0.4,
+  "mae_occluded": 0.64,
+  "mae_not_occluded": 0.36,
   "false_clear": 6,
   "truth_sha256": "fb6f78b80d3f078902b51021043841ca5faf26fde5208ca1208684fd88f41e7a",
   "precision_recall": "not available: count labels, no per-person boxes",
   "split_sha256": "9b4f715a1b015cf138f8e0f9ecef96b2196b19403f8730da1fc7e3e1fa77ef91",
   "development": {
     "samples": 54,
-    "mae": 0.57,
-    "exact_match": 0.52,
-    "within_one": 0.91,
-    "bias": -0.31,
+    "mae": 0.43,
+    "exact_match": 0.67,
+    "within_one": 0.93,
+    "bias": 0.09,
     "occluded_frames": 16,
-    "mae_occluded": 1.0,
-    "mae_not_occluded": 0.39,
-    "false_clear": 1
+    "mae_occluded": 0.62,
+    "mae_not_occluded": 0.34,
+    "false_clear": 3
   },
   "test": {
     "samples": 54,
-    "mae": 0.46,
-    "exact_match": 0.63,
-    "within_one": 0.91,
-    "bias": -0.02,
+    "mae": 0.41,
+    "exact_match": 0.65,
+    "within_one": 0.96,
+    "bias": 0.19,
     "occluded_frames": 6,
-    "mae_occluded": 1.0,
-    "mae_not_occluded": 0.4,
-    "false_clear": 5
+    "mae_occluded": 0.67,
+    "mae_not_occluded": 0.38,
+    "false_clear": 3
   },
   "comparison": [
     {
@@ -58,7 +59,7 @@
     {
       "time_sec": 1.23,
       "manual": 1,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
@@ -76,61 +77,61 @@
     {
       "time_sec": 3.42,
       "manual": 2,
-      "system": 1,
+      "system": 0,
       "occluded": true
     },
     {
       "time_sec": 4.15,
       "manual": 3,
-      "system": 1,
+      "system": 0,
       "occluded": true
     },
     {
       "time_sec": 4.88,
       "manual": 3,
-      "system": 3,
+      "system": 2,
       "occluded": true
     },
     {
       "time_sec": 5.61,
       "manual": 2,
-      "system": 3,
+      "system": 2,
       "occluded": true
     },
     {
       "time_sec": 6.34,
       "manual": 3,
-      "system": 2,
+      "system": 3,
       "occluded": true
     },
     {
       "time_sec": 7.07,
       "manual": 3,
-      "system": 2,
+      "system": 3,
       "occluded": true
     },
     {
       "time_sec": 7.8,
       "manual": 4,
-      "system": 3,
+      "system": 4,
       "occluded": true
     },
     {
       "time_sec": 8.53,
       "manual": 4,
-      "system": 2,
+      "system": 5,
       "occluded": true
     },
     {
       "time_sec": 9.26,
       "manual": 5,
-      "system": 3,
+      "system": 5,
       "occluded": true
     },
     {
       "time_sec": 9.99,
       "manual": 4,
-      "system": 3,
+      "system": 5,
       "occluded": true
     },
     {
@@ -148,31 +149,31 @@
     {
       "time_sec": 12.18,
       "manual": 4,
-      "system": 2,
+      "system": 4,
       "occluded": false
     },
     {
       "time_sec": 12.91,
       "manual": 2,
-      "system": 1,
+      "system": 4,
       "occluded": false
     },
     {
       "time_sec": 13.64,
       "manual": 2,
-      "system": 0,
+      "system": 1,
       "occluded": false
     },
     {
       "time_sec": 14.37,
       "manual": 3,
-      "system": 2,
+      "system": 3,
       "occluded": false
     },
     {
       "time_sec": 15.1,
       "manual": 1,
-      "system": 2,
+      "system": 1,
       "occluded": true
     },
     {
@@ -226,7 +227,7 @@
     {
       "time_sec": 21.67,
       "manual": 1,
-      "system": 1,
+      "system": 0,
       "occluded": false
     },
     {
@@ -250,7 +251,7 @@
     {
       "time_sec": 24.59,
       "manual": 2,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
@@ -274,25 +275,25 @@
     {
       "time_sec": 27.51,
       "manual": 2,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 28.24,
       "manual": 2,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 28.97,
       "manual": 3,
-      "system": 2,
+      "system": 3,
       "occluded": false
     },
     {
       "time_sec": 29.7,
       "manual": 3,
-      "system": 3,
+      "system": 4,
       "occluded": false
     },
     {
@@ -304,13 +305,13 @@
     {
       "time_sec": 31.16,
       "manual": 3,
-      "system": 4,
+      "system": 3,
       "occluded": true
     },
     {
       "time_sec": 31.89,
       "manual": 3,
-      "system": 4,
+      "system": 5,
       "occluded": false
     },
     {
@@ -322,31 +323,31 @@
     {
       "time_sec": 33.35,
       "manual": 3,
-      "system": 3,
+      "system": 4,
       "occluded": false
     },
     {
       "time_sec": 34.08,
       "manual": 3,
-      "system": 2,
+      "system": 4,
       "occluded": false
     },
     {
       "time_sec": 34.81,
       "manual": 3,
-      "system": 2,
+      "system": 4,
       "occluded": true
     },
     {
       "time_sec": 35.54,
       "manual": 1,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 36.27,
       "manual": 2,
-      "system": 3,
+      "system": 2,
       "occluded": false
     },
     {
@@ -484,37 +485,37 @@
     {
       "time_sec": 53.06,
       "manual": 1,
-      "system": 0,
+      "system": 1,
       "occluded": false
     },
     {
       "time_sec": 53.79,
       "manual": 1,
-      "system": 0,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 54.52,
       "manual": 2,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 55.25,
       "manual": 1,
-      "system": 1,
+      "system": 0,
       "occluded": false
     },
     {
       "time_sec": 55.98,
       "manual": 1,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 56.71,
       "manual": 1,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
@@ -532,7 +533,7 @@
     {
       "time_sec": 58.9,
       "manual": 1,
-      "system": 2,
+      "system": 1,
       "occluded": false
     },
     {
@@ -544,7 +545,7 @@
     {
       "time_sec": 60.36,
       "manual": 1,
-      "system": 2,
+      "system": 1,
       "occluded": false
     },
     {
@@ -568,13 +569,13 @@
     {
       "time_sec": 63.28,
       "manual": 2,
-      "system": 3,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 64.01,
       "manual": 2,
-      "system": 2,
+      "system": 3,
       "occluded": false
     },
     {
@@ -598,7 +599,7 @@
     {
       "time_sec": 66.93,
       "manual": 4,
-      "system": 4,
+      "system": 3,
       "occluded": true
     },
     {
@@ -610,7 +611,7 @@
     {
       "time_sec": 68.39,
       "manual": 5,
-      "system": 5,
+      "system": 6,
       "occluded": true
     },
     {
@@ -622,19 +623,19 @@
     {
       "time_sec": 69.85,
       "manual": 5,
-      "system": 7,
+      "system": 5,
       "occluded": false
     },
     {
       "time_sec": 70.58,
       "manual": 4,
-      "system": 4,
+      "system": 7,
       "occluded": false
     },
     {
       "time_sec": 71.31,
       "manual": 3,
-      "system": 3,
+      "system": 4,
       "occluded": false
     },
     {
@@ -646,7 +647,7 @@
     {
       "time_sec": 72.77,
       "manual": 3,
-      "system": 1,
+      "system": 3,
       "occluded": true
     },
     {
@@ -664,25 +665,25 @@
     {
       "time_sec": 74.96,
       "manual": 2,
-      "system": 2,
+      "system": 1,
       "occluded": false
     },
     {
       "time_sec": 75.69,
       "manual": 2,
-      "system": 1,
+      "system": 2,
       "occluded": false
     },
     {
       "time_sec": 76.42,
       "manual": 3,
-      "system": 1,
+      "system": 3,
       "occluded": false
     },
     {
       "time_sec": 77.15,
       "manual": 2,
-      "system": 0,
+      "system": 2,
       "occluded": true
     },
     {
