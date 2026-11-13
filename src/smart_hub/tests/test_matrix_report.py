@@ -93,6 +93,38 @@ def test_pedestrian_intrusion_is_told_apart_from_a_hub_caused_entry(tmp_path):
     assert test_matrix.occupancy_causes(no_grant)['hub_caused'] == 1
 
 
+def test_pedestrian_in_crossing_needs_an_intrusion_and_a_measured_stop():
+    def summary(intrusions, response):
+        return {'crossing': {'pedestrian_episode_causes': {'pedestrian_intrusions': intrusions,
+                                                           'hub_caused': 0},
+                             'pedestrian_response_ms': response}}
+
+    def base(ev, s):
+        return True, 'arrival error 0.090 m', {}
+    check = test_matrix.check_pedestrian_in_crossing(base)
+    ok, detail, values = check([], summary(1, {'n': 1, 'max': 310.0}))
+    assert ok and values['pedestrian_response_ms'] == 310.0
+    assert detail.startswith('pedestrian intrusions 1, standstill 310 ms')
+    assert not check([], summary(0, {'n': 0}))[0]           # pedestrian missed the robot
+    assert not check([], summary(1, {'n': 0}))[0]           # no measured stop
+    assert not test_matrix.check_pedestrian_in_crossing(
+        lambda ev, s: (False, 'no arrival', {}))([], summary(1, {'n': 1, 'max': 1.0}))[0]
+
+
+def test_lead_section_groups_seeds_by_the_forecast_lead():
+    def run(first, wait):
+        return {'first_dispatch_s': first, 'wait_all_lower_bound_mean_s': wait, 'arrived': 22}
+    by_mode = {'predictive': {'1': run(100.0, 120.0), '2': run(90.0, 130.0),
+                              '3': run(80.0, 140.0)},
+               'reactive': {'1': run(110.0, 125.0), '2': run(90.5, 130.0),
+                            '3': run(70.0, 135.0)}}
+    lines = test_matrix.lead_section(by_mode, ['1', '2', '3'])
+    assert '3 of 3 pairs saw the same number of arrivals' in lines[1]
+    assert lines[-3].startswith('| forecast earlier (lead >= 1 s) | 1 | 10.0 | -5.0 | 1 |')
+    assert lines[-2].startswith('| simultaneous (|lead| < 1 s) | 1 | 0.5 | +0.0 | 0 |')
+    assert lines[-1].startswith('| forecast later (lead <= -1 s) | 1 | -10.0 | +5.0 | 0 |')
+
+
 def test_domain_pool_never_hands_out_a_domain_in_use():
     pool = test_matrix.DomainPool(30, size=3)
     taken = [pool.acquire() for _ in range(3)]

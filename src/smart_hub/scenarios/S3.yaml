@@ -15,6 +15,8 @@ expected:
 variants:
   pedestrian_before_entry:
     - {t: 8.0,  type: crossing_pedestrian, duration_sec: 6.0}
+  pedestrian_in_crossing:                          # bus inside C at 16.5-20.5 s
+    - {t: 18.0, type: crossing_pedestrian, duration_sec: 4.0}
   blocked_bay:
     - {t: 2.0,  type: place_obstacle, id: bay_block, center: [8.0, 4.0], radius: 0.35}
     - {t: 40.0, type: remove_obstacle, id: bay_block}

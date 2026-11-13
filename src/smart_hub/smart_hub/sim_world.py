@@ -99,7 +99,14 @@ class World:
     def __init__(self, scenario, seed):
         self.scenario = scenario or {}
         self.seed = int(seed)
-        self.rng = random.Random(self.seed)
+        # Separate random streams (common random numbers). Arrivals draw exactly once per step
+        # from their own stream, so two policies run on one seed see the same passengers at the
+        # same times: how many pedestrians the sensors observe (noise draws per observation, at
+        # the rates of ROS timers) or where earlier passengers stood no longer shifts them.
+        self.rng = random.Random(self.seed)                         # scenario placements
+        self.arrival_rng = random.Random('arrivals-%d' % self.seed)
+        self.spot_rng = random.Random('queue-spots-%d' % self.seed)
+        self.noise_rng = random.Random('sensor-noise-%d' % self.seed)
         self.t = 0.0
         self.duration = float(self.scenario.get('duration_sec', math.inf))
         self.events = sorted(self.scenario.get('events', []), key=lambda e: float(e['t']))
@@ -265,11 +272,11 @@ class World:
         lanes = [(hub_map.NODES[a], hub_map.NODES[b]) for a, b in hub_map.ROBOT_EDGES]
         lane_y = hub_map.NODES['R'][1]
         for _ in range(500):
-            x = self.rng.uniform(xmin + QUEUE_MARGIN_M, xmax - QUEUE_MARGIN_M)
-            if self.rng.random() < 0.5:
-                y = self.rng.uniform(ymin + QUEUE_MARGIN_M, lane_y - LANE_CLEARANCE_M)
+            x = self.spot_rng.uniform(xmin + QUEUE_MARGIN_M, xmax - QUEUE_MARGIN_M)
+            if self.spot_rng.random() < 0.5:
+                y = self.spot_rng.uniform(ymin + QUEUE_MARGIN_M, lane_y - LANE_CLEARANCE_M)
             else:
-                y = self.rng.uniform(lane_y + LANE_CLEARANCE_M, ymax - QUEUE_MARGIN_M)
+                y = self.spot_rng.uniform(lane_y + LANE_CLEARANCE_M, ymax - QUEUE_MARGIN_M)
             if any(_point_segment_distance((x, y), a, b) < LANE_CLEARANCE_M - 1e-9
                    for a, b in lanes):
                 continue
@@ -493,8 +500,9 @@ class World:
 
     # ------------------------------------------------------------------ dynamics
     def _arrivals(self):
+        draw = self.arrival_rng.random()             # one draw per step, whatever the rate
         if self.arrival_rate_per_min > 0.0 and \
-                self.rng.random() < self.arrival_rate_per_min / 60.0 * STEP_SEC:
+                draw < self.arrival_rate_per_min / 60.0 * STEP_SEC:
             spot = self._random_queue_point()
             if spot is not None:
                 self._new_ped('Q', *spot)
@@ -680,7 +688,8 @@ class World:
         for p in sorted(self.peds.values(), key=lambda q: q.ped_id):
             if self.t < p.occluded_until:
                 continue
-            out.append((p.x + self.rng.gauss(0.0, noise_m), p.y + self.rng.gauss(0.0, noise_m)))
+            out.append((p.x + self.noise_rng.gauss(0.0, noise_m),
+                        p.y + self.noise_rng.gauss(0.0, noise_m)))
         return out
 
     def truth_pedestrians(self):
@@ -711,7 +720,8 @@ class World:
             if a.hidden:
                 continue
             noise = 0.0 if a.kind == 'obstacle' else noise_m
-            out.append((a, a.x + self.rng.gauss(0.0, noise), a.y + self.rng.gauss(0.0, noise),
+            out.append((a, a.x + self.noise_rng.gauss(0.0, noise),
+                        a.y + self.noise_rng.gauss(0.0, noise),
                         a.yaw, abs(a.v), self.edge_of(a)))
         return out
 

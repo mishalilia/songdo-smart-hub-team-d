@@ -58,7 +58,14 @@ from smart_hub.metrics import parse_latency_ms, percentile
 #      matrix M20261113-043251 (2.4) the domain was base + index % 60 and, with the cases
 #      started longest first, cases 60 apart ran at the same time in one domain (four cases
 #      failed twice as infrastructure: incomplete startup gate, doubled topic rates).
-HARNESS_VERSION = '2.5'
+# 2.6  T15 pedestrian_in_crossing: a pedestrian steps into C while the robot (FAULTS) or the
+#      bus (S3) is inside it. Since the dispatch floor (2.4) the bus of S8 has passed C before
+#      the scripted pedestrian, so the 15.1 stimulus needs cases of its own. The simulator
+#      draws arrivals from their own random stream (common random numbers): before, sensor
+#      reads at ROS-timer rates shared one stream with arrivals, so one seed gave different
+#      passengers under the two policies. Policy comparison adds the lead of the first
+#      dispatch per seed and the conditions table (lead_section).
+HARNESS_VERSION = '2.6'
 DOMAIN_POOL_SIZE = 30
 
 
@@ -331,6 +338,11 @@ def wait_metrics(summary):
             'completion_rate': queue['completion_rate']}
 
 
+def first_dispatch_s(ev):
+    hit = first(ev, 'DISPATCH_REQUESTED', 'bus1')
+    return hit['t'] if hit else None
+
+
 def check_s2_dispatch(ev, summary):
     outstanding, overlaps = 0, 0
     reasons = []
@@ -347,7 +359,8 @@ def check_s2_dispatch(ev, summary):
     return ok, 'dispatches %s, overlapping %d; boarded %d of %d arrived, boarded wait mean ' \
         '%s s' % (reasons, overlaps, queue['boarded'], queue['arrived'],
                   '%.1f' % wait['mean'] if wait.get('n') else '-'), \
-        dict(wait_metrics(summary), dispatches=len(reasons))
+        dict(wait_metrics(summary), dispatches=len(reasons),
+             first_dispatch_s=first_dispatch_s(ev))
 
 
 def check_dock_ok(ev, summary, eta_required=True):
@@ -372,6 +385,21 @@ def check_dock_ok(ev, summary, eta_required=True):
 def check_dock_disturbed(ev, summary):
     # A pedestrian or blocked bay makes the bus wait, so the 5 m ETA is not a target here.
     return check_dock_ok(ev, summary, eta_required=False)
+
+
+def check_pedestrian_in_crossing(base):
+    """15.1: a pedestrian intrudes into an occupied C; the movement stops, then completes."""
+    def check(ev, summary):
+        ok, detail, values = base(ev, summary)
+        causes = summary['crossing'].get('pedestrian_episode_causes') or {}
+        response = summary['crossing']['pedestrian_response_ms']
+        intrusions = causes.get('pedestrian_intrusions', 0)
+        ok = ok and intrusions >= 1 and response.get('n', 0) >= 1
+        values = dict(values, pedestrian_response_ms=response.get('max'))
+        return ok, 'pedestrian intrusions %d, standstill %s ms (limit %d); %s' % (
+            intrusions, '-' if not response.get('n') else '%.0f' % response['max'],
+            PEDESTRIAN_RESPONSE_MS, detail), values
+    return check
 
 
 def check_dock_cancel(ev, summary):
@@ -566,7 +594,7 @@ def check_s8(ev, summary):
             '%.1f' % everyone['mean'] if everyone.get('n') else '-')
     if problems:
         detail += '; FAILED: ' + '; '.join(problems)
-    return not problems, detail, wait_metrics(summary)
+    return not problems, detail, dict(wait_metrics(summary), first_dispatch_s=first_dispatch_s(ev))
 
 
 def check_s9(ev, summary):
@@ -899,6 +927,11 @@ def build_cases(repeat):
         120, variant='congestion')
     add('T15', 'S8', check_s8, 300, seeds=policy_seeds, mode='predictive', record=True)
     add('T15', 'S8', check_s8, 300, seeds=policy_seeds, mode='reactive')
+    # The 15.1 stimulus on its own: pedestrian inside C while the robot / bus is in it.
+    add('T15', 'FAULTS', check_pedestrian_in_crossing(check_escort_ok), 75,
+        variant='pedestrian_in_crossing', seeds=seeds)
+    add('T15', 'S3', check_pedestrian_in_crossing(check_dock_disturbed), 85,
+        variant='pedestrian_in_crossing', seeds=seeds)
     add('T16', 'S9', check_s9, 45, record=True)
     # Each fault five times at different mission phases (16.3).
     phases = ('waiting', 'to_crossing', 'in_crossing', 'after_crossing', 'near_destination')
@@ -1210,9 +1243,48 @@ def dispatch_scenario_section(rows, scenario, label):
             lines.append('| %s, seeds %s-%s only | %d | %+.1f | %+.1f .. %+.1f | %d of %d |' % (
                 name, seeds[len(deltas) // 2], seeds[-1], c['n'], c['mean'], c['ci95_low'],
                 c['ci95_high'], sum(d < 0 for d in half), len(half)))
+    lines += lead_section(by_mode, seeds)
     lines += ['', 'Per-seed delta of the boarded wait (s): ' + ', '.join(
         'seed %s %+.1f' % (s, float(by_mode['predictive'][s]['queue_wait_mean_s']) -
                            float(by_mode['reactive'][s]['queue_wait_mean_s'])) for s in seeds)]
+    return lines
+
+
+LEAD_TIE_SEC = 1.0         # first dispatches closer than this count as simultaneous
+
+
+def lead_section(by_mode, seeds):
+    """
+    Conditions under which each policy wins, grouped by the forecast's lead.
+
+    Lead = first dispatch of the reactive run - first dispatch of the predictive run on the
+    same seed. Seeds are grouped as forecast earlier / simultaneous / forecast later, and the
+    all-passenger wait difference is reported per group. Equal arrival counts per pair show
+    that both policies saw the same passengers (common random numbers).
+    """
+    key = 'wait_all_lower_bound_mean_s'
+    pairs = []
+    for s in seeds:
+        p, r = by_mode['predictive'][s], by_mode['reactive'][s]
+        if p.get('first_dispatch_s') in (None, '') or r.get('first_dispatch_s') in (None, ''):
+            continue
+        pairs.append((float(r['first_dispatch_s']) - float(p['first_dispatch_s']),
+                      float(p[key]) - float(r[key]), p.get('arrived') == r.get('arrived')))
+    if not pairs:
+        return []
+    groups = (('forecast earlier (lead >= %.0f s)' % LEAD_TIE_SEC, lambda x: x >= LEAD_TIE_SEC),
+              ('simultaneous (|lead| < %.0f s)' % LEAD_TIE_SEC, lambda x: abs(x) < LEAD_TIE_SEC),
+              ('forecast later (lead <= -%.0f s)' % LEAD_TIE_SEC, lambda x: x <= -LEAD_TIE_SEC))
+    lines = ['', 'Conditions: seeds grouped by the lead of the first dispatch (reactive minus '
+             'predictive time; %d of %d pairs saw the same number of arrivals):' % (
+                 sum(same for _, _, same in pairs), len(pairs)), '',
+             '| Group | Seeds | Median lead (s) | Mean all-passenger delta (s) | '
+             'Predictive lower |', '|---|---|---|---|---|']
+    for name, test in groups:
+        g = [(lead, d) for lead, d, _ in pairs if test(lead)]
+        lines.append('| %s | %d | %s | %s | %d |' % (
+            name, len(g), fmt(percentile([x for x, _ in g], 50)) if g else '-',
+            '%+.1f' % mean([d for _, d in g]) if g else '-', sum(d < 0 for _, d in g)))
     return lines
 
 
