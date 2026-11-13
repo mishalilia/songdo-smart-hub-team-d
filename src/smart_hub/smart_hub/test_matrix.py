@@ -20,6 +20,7 @@ each case, and <out>/summary.md reports first-attempt and eventual totals separa
   ros2 run smart_hub run_test_matrix --cases T13 --repeat 3     # subset
 """
 import argparse
+import collections
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import glob
@@ -53,7 +54,33 @@ from smart_hub.metrics import parse_latency_ms, percentile
 #      re-evaluated with it; no runs were repeated.
 # 2.3  T03 and T11 run inside the matrix as offline cases with attempt IDs.
 # 2.4  dispatch policies compared on 2 x repeat paired seeds (second half = confirmation).
-HARNESS_VERSION = '2.4'
+# 2.5  ROS domains come from a pool: a domain is never shared by two running launches. In
+#      matrix M20261113-043251 (2.4) the domain was base + index % 60 and, with the cases
+#      started longest first, cases 60 apart ran at the same time in one domain (four cases
+#      failed twice as infrastructure: incomplete startup gate, doubled topic rates).
+HARNESS_VERSION = '2.5'
+DOMAIN_POOL_SIZE = 30
+
+
+class DomainPool:
+    """ROS_DOMAIN_IDs for concurrent launches: never shared, the least recently used first."""
+
+    def __init__(self, base, size=DOMAIN_POOL_SIZE):
+        self.free = collections.deque(range(base, base + size))
+        self.cond = threading.Condition()
+
+    def acquire(self):
+        with self.cond:
+            while not self.free:
+                self.cond.wait()
+            return self.free.popleft()
+
+    def release(self, domain):
+        with self.cond:
+            self.free.append(domain)
+            self.cond.notify()
+
+
 TRANSPORT_ENV = {'FASTDDS_BUILTIN_TRANSPORTS': 'UDPv4'}    # kept if already set by the caller
 MAX_ATTEMPTS = 2           # the second one only after an infrastructure failure
 RECORD_FILES = ('events.csv', 'summary.json', 'params.json', 'crossing_occupancy.csv',
@@ -951,11 +978,16 @@ def run_case(case, index, opts, lock):
     """Run one case; only an infrastructure failure is attempted again, both are kept."""
     rows = []
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        pool = getattr(opts, 'domains', None)
+        domain = pool.acquire() if pool else getattr(opts, 'domain_base', 30) + index % 60
         try:
-            row = _run_case(case, index, opts, lock, attempt)
+            row = _run_case(case, index, opts, lock, attempt, domain)
         except Exception as exc:              # one broken run must not stop the matrix
             row = dict(case_row(case), passed=False, failure_class='infrastructure',
                        details='runner error: %r' % exc)
+        finally:
+            if pool:
+                pool.release(domain)
         again = row['failure_class'] == 'infrastructure' and attempt < MAX_ATTEMPTS
         row.update(harness_version=HARNESS_VERSION, matrix_id=opts.matrix_id,
                    attempt=attempt, commit=opts.commit_label,
@@ -988,12 +1020,11 @@ def run_end(start, duration, kill_wall=None):
     return end if kill_wall is None else max(end, kill_wall + POST_KILL_SEC)
 
 
-def _run_case(case, index, opts, lock, attempt):
+def _run_case(case, index, opts, lock, attempt, domain):
     if case.get('offline'):
         ok, details, metrics = case['check']()
         return dict(case_row(case), passed=bool(ok), details=details,
                     failure_class='' if ok else 'application', **metrics)
-    domain = opts.domain_base + index % 60           # valid ROS_DOMAIN_ID range is 0..101
     tag = 'm%05d' % (opts.tag_base + index) + 'r' * (attempt - 1)
     label = case['scenario'] + ('-' + case['variant'] if case['variant'] else '') + '-' + tag
     cmd = ['ros2', 'launch', 'smart_hub', 'hub.launch.py', 'scenario:=' + case['scenario'],
@@ -1368,6 +1399,7 @@ def main(args=None):
     # Longest first keeps the pool busy until the end.
     order = sorted(range(len(cases)), key=lambda i: -cases[i]['duration'])
     lock = threading.Lock()
+    opts.domains = DomainPool(opts.domain_base)
     with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
         futures = {i: pool.submit(run_case, cases[i], i, opts, lock) for i in order}
         rows = [futures[i].result() for i in sorted(futures)]

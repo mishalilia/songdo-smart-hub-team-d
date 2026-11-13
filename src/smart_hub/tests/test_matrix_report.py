@@ -93,6 +93,20 @@ def test_pedestrian_intrusion_is_told_apart_from_a_hub_caused_entry(tmp_path):
     assert test_matrix.occupancy_causes(no_grant)['hub_caused'] == 1
 
 
+def test_domain_pool_never_hands_out_a_domain_in_use():
+    pool = test_matrix.DomainPool(30, size=3)
+    taken = [pool.acquire() for _ in range(3)]
+    assert sorted(taken) == [30, 31, 32]
+    pool.release(31)
+    pool.release(30)
+    assert pool.acquire() == 31               # least recently released first
+    got = []
+    worker = threading.Thread(target=lambda: got.append(pool.acquire()))
+    worker.start()
+    worker.join(0.2)
+    assert got == [30]
+
+
 def test_run_stays_up_for_the_observation_window_after_a_late_kill():
     nominal = 100.0 + test_matrix.STARTUP_SEC + 17.0
     assert test_matrix.run_end(100.0, 17.0) == nominal
@@ -117,7 +131,8 @@ def test_infrastructure_failure_is_retried_once_and_both_attempts_are_kept(
         {'passed': True, 'failure_class': '', 'run_id': 'run-b', 'details': 'ok'}])
     monkeypatch.setattr(
         test_matrix, '_run_case',
-        lambda c, index, opts, lock, attempt: dict(test_matrix.case_row(c), **next(outcomes)))
+        lambda c, index, opts, lock, attempt, domain=None: dict(test_matrix.case_row(c),
+                                                                **next(outcomes)))
     row = test_matrix.run_case(case(), 7, options(tmp_path), threading.Lock())
     assert (row['passed'], row['attempts'], row['first_attempt']) == (
         True, 2, 'infrastructure')
@@ -136,7 +151,7 @@ def test_infrastructure_failure_is_retried_once_and_both_attempts_are_kept(
 def test_application_failure_is_final(tmp_path, monkeypatch):
     calls = []
 
-    def run(c, index, opts, lock, attempt):
+    def run(c, index, opts, lock, attempt, domain=None):
         calls.append(attempt)
         return dict(test_matrix.case_row(c), passed=False, failure_class='application',
                     run_id='run-a', details='zero command 250.00 ms')
@@ -149,7 +164,7 @@ def test_application_failure_is_final(tmp_path, monkeypatch):
 
 
 def test_runner_exception_is_an_infrastructure_failure(tmp_path, monkeypatch):
-    def run(c, index, opts, lock, attempt):
+    def run(c, index, opts, lock, attempt, domain=None):
         raise OSError('ros2 not found')
     monkeypatch.setattr(test_matrix, '_run_case', run)
     row = test_matrix.run_case(case(), 1, options(tmp_path), threading.Lock())
