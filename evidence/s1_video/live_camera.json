@@ -1,26 +1,26 @@
 {
-  "what": "live camera path on the tested revision b0f176a: ros2 launch smart_hub s1_video.launch.py detector:=<d> (video_source + passenger_detector, camera mode) on vtest.avi, 90 s per detector, one 8-CPU machine; CAMERA_FRAMES events of passenger_detector, cumulative at the last report",
+  "what": "live camera path on the tested revision a321fa5: ros2 launch smart_hub s1_video.launch.py detector:=<d> (video_source + passenger_detector, camera mode) on vtest.avi, 90 s per detector, one 8-CPU machine; CAMERA_FRAMES events of passenger_detector, cumulative at the last report",
   "note": "frames replaced before the detector took them are dropped (newest-frame policy); none expired. yolox = YOLOX-s on a 320 x 320 input",
   "runs": {
     "yolox": {
-      "received": 495,
-      "processed": 493,
-      "dropped": 1,
+      "received": 466,
+      "processed": 465,
+      "dropped": 0,
       "expired": 0,
-      "acquisition_to_update_ms_p95": 168.4,
-      "p99": 198.7,
-      "n": 493,
+      "acquisition_to_update_ms_p95": 158.3,
+      "p99": 180.2,
+      "n": 465,
       "processed_share": 1.0
     },
     "hog": {
-      "received": 422,
-      "processed": 322,
-      "dropped": 99,
+      "received": 382,
+      "processed": 359,
+      "dropped": 22,
       "expired": 0,
-      "acquisition_to_update_ms_p95": 411.4,
-      "p99": 469.3,
-      "n": 322,
-      "processed_share": 0.76
+      "acquisition_to_update_ms_p95": 342.9,
+      "p99": 419.4,
+      "n": 359,
+      "processed_share": 0.94
     }
   }
 }

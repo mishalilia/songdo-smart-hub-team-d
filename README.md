@@ -319,7 +319,7 @@ rule (fastest input whose development error is not worse); both uses are recorde
 `evaluate_s1_video --split … --ablation` reproduces `ablation.json`; the confirmation (0.4 s),
 occlusion (0.5 s) and association (0.5 m) rules of the tracker are unchanged.
 
-**Test matrix** (`run_test_matrix`, harness 2.5). Every attempt gets an ID
+**Test matrix** (`run_test_matrix`, harness 2.6). Every attempt gets an ID
 `<matrix>-<case>-<attempt>` and a row in `attempts.csv`, which is append-only across matrices
 and harness versions. A failure is *infrastructure* (no run record, startup gate incomplete,
 kill target missing, unreadable summary, graph audit mismatch) or *application* (the
@@ -337,7 +337,9 @@ nodes start with mixed transports and a subscriber may silently receive nothing.
 running launch gets its own ROS domain from a pool of 30 (least recently used first), so
 two cases never share a domain. T03 and T11 run inside the matrix as offline cases; the
 dispatch policies are compared on 2 × `--repeat` paired seeds, the second half reported
-separately as confirmation seeds.
+separately as confirmation seeds. Every policy pair must show the same arrival attempts
+(entered or balked, each within 0.25 s): the simulator draws arrivals from their own random
+stream (common random numbers), so a seed fixes the passengers whatever the policy does.
 
 **Scalability benchmark.** `cars_requested` / `pedestrians_requested` are what the load
 event asks for; `cars_placed` / `pedestrians_placed` are what fits on free road and walkway
@@ -354,20 +356,24 @@ sees as backlog), measured rates and the graph audit.
 
 ## Results
 
-Tested revision `b0f176a`; the submitted snapshot adds only the evidence of these runs and
-documentation (no source file changes). Everything below — the matrices, `colcon test`
-(136 tests, 0 failures), the whole-graph load sweep, the simulator-core benchmark, the S1
-video evaluation, the live camera path and the scenario clips — was produced on that commit,
-three launches in parallel on one 8-CPU machine (`evidence/test_matrix/`).
+Tested revision `a321fa5`; the submitted snapshot adds only the evidence of these runs and
+documentation (no source file changes). Everything below — the matrix, `colcon test`
+(140 tests, 0 failures), the retraining of the forecast, the whole-graph load sweep, the
+simulator-core benchmark, the S1 video evaluation, the live camera path and the scenario clips —
+was produced on that commit, two launches in parallel on one 8-CPU machine; the host load
+during the matrix is logged every 5 minutes in `evidence/test_matrix/host_load.csv`.
 
-| Matrix | Cases | First attempt | After the single re-run | Not passed |
-|--------|-------|---------------|-------------------------|------------|
-| `M20261113-082431` (all T01–T18, harness 2.5) | 156 | 148/156 | 153/156 | 3 cases failed the graph audit twice (topic rates 7.3–7.8 Hz against the 8 Hz floor): another workload loaded the shared host (load average 16–18 on 8 CPUs). Infrastructure class; no criterion was judged |
-| `M20261113-121230` (all T05 and T16 cases, same commit, `supplementary/`) | 30 | 28/30 | 30/30 | none — includes the three cases above |
+| Matrix | Cases | First attempt | After the single re-run |
+|--------|-------|---------------|-------------------------|
+| `M20261113-150132` (all T01–T18, harness 2.6) | 176 | 174/176 | **176/176** |
 
-No application criterion failed in any of the 186 cases. Every attempt, the records of every
-failed one and both summaries are kept; `attempts.csv` holds all ten matrices since the
-midterm:
+The two first attempts that failed (T09 S5_FREE seed 5, T15 S3 pedestrian_in_crossing seed 3)
+were infrastructure failures of the graph audit: `/hub/demand` (1 Hz) showed no message in the
+short rate window right after discovery although `demand_predictor` was discovered with its
+publisher and subscribers; both passed on the single permitted re-run. No application
+criterion failed. `train_demand_model --episodes 30` on this revision reproduced the committed
+model byte for byte. Every attempt and the records of every failed one are kept;
+`attempts.csv` holds all twelve matrices since the midterm:
 
 | Matrix | Harness | Commit | Cases | First attempt | Eventual | Notes |
 |--------|---------|--------|-------|---------------|----------|-------|
@@ -376,45 +382,67 @@ midterm:
 | `M20261112-004912` | 2.1 | `eff8e52` | 95 | 95/95 | 95/95 | |
 | `M20261112-054841` | 2.1 | `0523e7d` | 114 | 114/114 | 114/114 | |
 | `M20261112-171643` | 2.3 | `eca7d17` | 116 | 116/116 | 116/116 | before the detector input change and the dispatch floor |
-| `M20261113-043251` | 2.4 | `0162266` | 156 | 152/156 | 152/156 | 4 infrastructure failures: two launches shared a ROS domain (`index % 60` with longest-first order); fixed by a domain pool (2.5). Node code identical to `b0f176a` |
-| `M20261113-082431` / `-121230` | 2.5 | `b0f176a` | 156 / 30 | 148/156, 28/30 | 153/156, 30/30 | final, above |
+| `M20261113-043251` | 2.4 | `0162266` | 156 | 152/156 | 152/156 | 4 infrastructure failures: two launches shared a ROS domain (`index % 60` with longest-first order); fixed by a domain pool (2.5) |
+| `M20261113-082431` / `-121230` | 2.5 | `b0f176a` | 156 / 30 | 148/156, 28/30 | 153/156, 30/30 | 3 cases failed the graph audit twice under load from another workload (load average 16–18); passed in a supplementary matrix on the same commit (`supplementary/`). Policy pairs did not see the same passengers (one random stream for arrivals and sensor noise) |
+| `M20261113-150132` | 2.6 | `a321fa5` | 176 | 174/176 | 176/176 | final, above |
 
-| Item | Result (tested revision `b0f176a`) |
+What changed between `b0f176a` and `a321fa5` (all found in the evidence of the earlier matrices):
+arrivals in the simulator draw from their own random stream, so both policies on one seed see
+the same passengers (the earlier pairs did not, which made two runs of identical code disagree);
+the forecast was retrained on the regenerated episodes with the unchanged procedure;
+`passenger_detector` publishes the invalid state within 50 ms of the 1 s freshness limit instead
+of at the next 5 Hz publication (T02 had 1.13 s against 1.2 s); T15 has 20 cases of a
+pedestrian stepping into C while the robot or the bus is inside it, because since the dispatch
+floor the S8 bus has passed C before the scripted pedestrian; the harness checks that the
+arrival attempts of every policy pair match.
+
+| Item | Result (tested revision `a321fa5`) |
 |------|--------|
-| S1 queue counting (simulated camera) | stable counts 0 → 3 → 5 → 4; UNKNOWN 1.13 s after camera freeze (T02 limit 1.2 s) |
-| S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames; `evidence/s1_video/`) | **YOLOX-s on a 320 input: test MAE 0.41 (54 held-out frames), 0.42 on all 108 (target ≤ 1 met)**; test exact 65 %, within ±1 96 %; partially occluded frames 0.67 (test, 6) / 0.64 (all 22); 6 frames reported empty with people present (midterm HOG: 36). Same test frames: YOLOX on 640 0.46, HOG with re-chosen thresholds 0.93, HOG with the midterm thresholds 1.11 (on the 22 occluded frames 1.59 with the current code; 1.77 as reviewed — the midterm code took HOG windows at OpenCV's default threshold 0, the current profiles at −0.5). The 320 input was chosen in a second round by a rule frozen before the test part was used again (`ablation_plan.json`). Samples are small: one video, 54 test frames. Detector time per frame: YOLOX-320 117 ms (p95 130, p99 139); YOLOX-640 about 4× slower |
-| S1 live camera path (`live_camera.json`, 90 s) | YOLOX-320: 493 of 495 received frames processed (1 dropped, none expired), acquisition → tracker update p95 0.17 s, p99 0.20 s (1.0 s freshness limit). HOG: 76 %, 0.41 / 0.47 s. Before the input change YOLOX-640 processed 33–43 % with p99 0.88–0.94 s |
-| S2 demand forecast (T03, offline case) | test MAE 1.75 vs persistence 2.07 (6 episodes); on all 30 unseen episodes (6 test + 24 further) paired Δ −0.23, 95 % interval −0.35 .. −0.11, model better in 24 of 30; inference p95 0.006 ms |
-| S3 bus docking (10 runs, supplementary matrix) | position error 0.091 ± 0.021 m (max 0.13, limit 0.20), yaw 0.024 ± 0.049 rad (limit 0.17), ETA error at 5 m −0.73 ± 0.22 s; cancel → zero command 100 ms |
-| S4 parking (20 simultaneous pairs) | 40 grants, 0 double allocations, service p95 30.8 ms |
-| S5 congestion | CONGESTED 0.10 s, UNKNOWN 0.90 s, BLOCKED within the same cycle after the stimulus; precision 1.00, recall 1.00; 0 false labels in 10 free-flow runs |
-| S6 routing on the live graph (T11 / T12) | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: detect 46 ms, react 19 ms, standstill 36 ms, replan 389 ms, held at standstill; route computation p95 0.37 ms. Offline T11: planner = independent oracle on 20 seeded edge states |
-| S7 robot escort (10 runs) | all arrived, arrival error 0.095 ± 0.002 m; in every run the active edge Cs–J is blocked and the route changes (R–W–Cn–Cs–J–D → … Cn–B–U–E–J–D); standstill 92 ± 18 ms after the replan decision (budget 500 ms) |
-| S8 integrated hub (20 + 20 runs) | **Strict occupancy of C (any two users at once, ground truth, no grace): 0 in all 40 runs** — robot/bus + pedestrian 0, robot/bus + robot/bus 0, robot/bus + car 0, car + pedestrian 0, car + car 0; 0 contacts, 0 unauthorized entries, 0 token overlaps. Since the dispatch floor the bus no longer leaves late and has passed C before the scripted pedestrian appears at 80 s. In the earlier matrix `M20261112-171643` (late dispatch) every predictive run had one such episode — the pedestrian placed inside a C the bus already owned and occupied; the hub stopped the bus within 0.84 ms (zero command) / 102 ms (standstill), and no episode was hub-caused |
-| S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | main matrix, e-stop in five mission phases: zero command 0.20–1.32 ms after e-stop receipt (requirement 200 ms), measured standstill 30–48 ms; the S9 run passed in the supplementary matrix (3.09 ms / 20 ms), which repeated all six e-stop runs: 0.29–8.07 ms, standstill 20–52 ms; every fault stops or aborts safely |
-| Node kills (10 runs + planner) | zero output 0.52 ± 0.03 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
-| Dispatch service (re-arm after a served mission) | S8: 240 / 236 boarded in 20 episodes per policy (midterm: 40 in 10), completion 0.69 / 0.70 (midterm 0.24); all-passenger wait lower bound 133 / 131 s (midterm 165 s) |
-| Dispatch policy, rising demand (S2, 20 paired seeds) | all passengers (lower bound): Δ = W_predictive − W_reactive −0.6 s, 95 % interval −8.7 .. +7.5, predictive lower in 9 of 20; boarded only +0.1 s (−9.1 .. +9.1). The same node code in `M20261113-043251` gave boarded −7.5 s (−14.7 .. −0.4) and all passengers −4.8 s (−12.5 .. +2.1): between two runs of identical code the paired difference moves by more than its own interval, so **a transport benefit of the forecast is not established**. What the floor guarantees structurally: the forecast can only make a dispatch earlier than the observed queue would. Conditions: in S2 the forecast dispatched first in 9 seeds (median 23 s), within 1 s in 3, later in 8, but the waits do not follow the lead (Δ +0.4 s where earlier, −4.8 s where later): only 5 of 20 pairs saw the same arrivals, because the simulator drew arrivals and sensor noise (read at ROS-timer rates) from one random stream. A separate arrival stream needs a new matrix run and is not part of the tested revision |
-| Dispatch policy, step surge (S8, 20 paired seeds) | all passengers Δ +2.5 s (−4.5 .. +9.3), boarded +2.5 s (−2.7 .. +8.0); first dispatch within 0.7 s of the reactive one in every seed (the jump to seven people is observed, not forecast): a tie by construction |
-| Energy (analytical model, not measured; equal duration, equal service) | S8 (298 s): bus 4366 / 4359 J, robot 1563 / 1562 J per run; bus + robot per boarded passenger 494 / 502 J (midterm, one trip: 1363 J). S2 (357 s): 590 / 610 J per boarded passenger |
-| Whole-graph load (`evidence/graph_load.csv`, full launch alone) | up to the most the map holds (150 pedestrians, 23 cars): all 14 nodes together 188 → 241 % of one core, busiest node `scenario_runner` ≤ 46 %; receipt age p95 ≤ 12 ms for `/hub/vehicles`, ≤ 4.4 ms for `/hub/safety`, ≤ 28 ms for `/camera/image_raw`; graph audit passed at every level |
-| Simulator core (`evidence/scalability.csv`, world step only) | fully placed up to 15 cars + 60 pedestrians: step p95 0.37 ms, p99 0.51 ms. The assignment asks for one bus and one robot; 100 cars were requested only to find the placement limit of the map: 23 cars and 146 of 400 pedestrians fit — not a 100-car result |
+| S1 queue counting (simulated camera) | stable counts 0 → 3 → 5 → 4; UNKNOWN 0.98 s after camera freeze (T02 limit 1.2 s; 1.0 s freshness limit plus at most 50 ms) |
+| S1 on real video (offline, PETS 2009 view, 108 hand-annotated frames; `evidence/s1_video/`) | **YOLOX-s on a 320 input: test MAE 0.41 (54 held-out frames), 0.42 on all 108 (target ≤ 1 met)**; test exact 65 %, within ±1 96 %; partially occluded frames 0.67 (test, 6) / 0.64 (all 22); 6 frames reported empty with people present (midterm HOG: 36). Same test frames: YOLOX on 640 0.46, HOG with re-chosen thresholds 0.93, HOG with the midterm thresholds 1.11 (on the 22 occluded frames 1.59 with the current code; 1.77 as reviewed — the midterm code took HOG windows at OpenCV's default threshold 0, the current profiles at −0.5). The 320 input was chosen in a second round by a rule frozen before the test part was used again (`ablation_plan.json`). Samples are small: one video, 54 test frames. Detector time per frame: YOLOX-320 127 ms (p95 149, p99 156); YOLOX-640 about 4× slower |
+| S1 live camera path (`live_camera.json`, 90 s) | YOLOX-320: 465 of 466 received frames processed (none dropped or expired), acquisition → tracker update p95 0.16 s, p99 0.18 s (1.0 s freshness limit). HOG: 94 %, 0.34 / 0.42 s. Before the input change YOLOX-640 processed 33–43 % with p99 0.88–0.94 s |
+| S2 demand forecast (T03, offline case) | test MAE 1.77 vs persistence 2.07 (6 episodes, model better in 6); on all 30 unseen episodes (6 test + 24 further) paired Δ −0.28, 95 % interval −0.38 .. −0.18, model better in 27 of 30; inference p95 0.007 ms |
+| S3 bus docking (10 runs) | position error 0.109 ± 0.017 m (max 0.135, limit 0.20), yaw 0.005 ± 0.055 rad (limit 0.17), ETA error at 5 m −0.85 ± 0.21 s; cancel → zero command 152 ms |
+| S4 parking (20 simultaneous pairs) | 40 grants, 0 double allocations, service p95 22.4 ms |
+| S5 congestion | CONGESTED 0.09 s, UNKNOWN 0.99 s, BLOCKED 0.09 s after the stimulus; precision 1.00, recall 1.00; 0 false labels in 10 free-flow runs |
+| S6 routing on the live graph (T11 / T12) | baseline 28.6 s, detour 40.0 s, `NO_ROUTE` with both corridors blocked; robot with its active edge blocked: detect 92 ms, react 41 ms, standstill 69 ms, replan 399 ms, held at standstill; route computation p95 0.29 ms. Offline T11: planner = independent oracle on 20 seeded edge states |
+| S7 robot escort (10 runs) | all arrived, arrival error 0.095 ± 0.002 m; in every run the active edge Cs–J is blocked and the route changes (R–W–Cn–Cs–J–D → … Cn–B–U–E–J–D); standstill 82 ± 41 ms after the replan decision (max 138, budget 500 ms) |
+| S8 integrated hub (20 + 20 runs) | **Strict occupancy of C (any two users at once, ground truth, no grace): 0 in all 40 runs** — robot/bus + pedestrian 0, robot/bus + robot/bus 0, robot/bus + car 0, car + pedestrian 0, car + car 0; 0 contacts, 0 unauthorized entries, 0 token overlaps. The bus has passed C before the scripted pedestrian at 80 s, so 15.1 is tested by its own cases (next row) |
+| Pedestrian steps into an occupied C (T15, 15.1; 10 + 10 runs) | robot inside C: pedestrian intrusion in all 10, measured standstill 98–102 ms, escort then completed (arrival error ≤ 0.099 m); bus inside C: intrusion in all 10, standstill 100–300 ms (ground truth at 10 Hz), docking then completed. Limit 1000 ms; 0 hub-caused episodes, 0 contacts |
+| S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | six e-stop runs (S9 and five phases): zero command 0.22–2.42 ms after e-stop receipt (requirement 200 ms), measured standstill 17–49 ms, observer delay 0.9–1.4 ms; reset rejected while a sensor is stale, accepted after recovery; every fault stops or aborts safely |
+| Node kills (10 runs + planner) | zero output 0.53 ± 0.03 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
+| Dispatch service (re-arm after a served mission) | S8: 240 / 240 boarded in 20 episodes per policy (midterm: 40 in 10), completion 0.69 / 0.69 (midterm 0.24); all-passenger wait lower bound 134 / 134 s (midterm 165 s) |
+| Dispatch policy, rising demand (S2, 20 paired seeds) | identical arrival attempts in 20 of 20 pairs. All passengers (lower bound): Δ = W_predictive − W_reactive +0.0 s, 95 % interval −0.7 .. +0.9, predictive lower in 14 of 20; boarded only +0.3 s (−0.4 .. +1.1). **No transport benefit of the forecast**: on identical episodes both policies dispatch within 1 s of each other in 19 of 20 seeds (the forecast was 7 s earlier in one, Δ −2.3 s there) |
+| Dispatch policy, step surge (S8, 20 paired seeds) | identical arrival attempts in 20 of 20 pairs. All passengers Δ +0.3 s (−0.0 .. +0.7), boarded +0.1 s (−0.2 .. +0.7); first dispatch within 1 s in 19 of 20 seeds: the jump to seven people is observed, not forecast — a tie by construction |
+| Energy (analytical model, not measured; equal duration, equal service) | S8 (299 s): bus 4387 / 4379 J, robot 1566 / 1564 J per run; bus + robot per boarded passenger 496 / 495 J (midterm, one trip: 1363 J). S2 (359 s): 612 / 611 J per boarded passenger |
+| Whole-graph load (`evidence/graph_load.csv`, full launch alone) | up to `saturated` (400 pedestrians and 100 cars requested, 153 and 25 placed): all 14 nodes together 191 → 239 % of one core, busiest node `scenario_runner` ≤ 47 %; receipt age p95 ≤ 15 ms for `/hub/vehicles`, ≤ 8.2 ms for `/hub/safety`, ≤ 29 ms for `/camera/image_raw`; graph audit passed at every level except `idle`, where the 1 Hz `/hub/demand` showed no message in the rate window (the sweep has no re-run) |
+| Simulator core (`evidence/scalability.csv`, world step only) | fully placed up to 15 cars + 60 pedestrians: step p95 0.34 ms, p99 0.37 ms. The assignment asks for one bus and one robot; 100 cars were requested only to find the placement limit of the map: 23 cars and 146 of 400 pedestrians fit — not a 100-car result |
 
-Repeated runs, mean ± standard deviation (n runs): S3 position error 0.091 ± 0.021 m, yaw
-0.024 ± 0.049 rad, ETA error at 5 m −0.73 ± 0.22 s (10); S7 arrival error 0.095 ± 0.002 m,
-standstill after the replan decision 92 ± 18 ms (10); measured standstill after e-stop
-41.5 ± 7.3 ms (5, main matrix) and 39.5 ± 11 ms (6, supplementary matrix); zero output after a process kill 0.52 ± 0.03 s (10). All-passenger wait
-(lower bound) per episode: S2 127 ± 14 s predictive, 128 ± 10 s reactive; S8 133 ± 9 s,
-131 ± 13 s; completion rate S2 0.55 ± 0.05 / 0.54 ± 0.07, S8 0.69 ± 0.07 / 0.70 ± 0.06
-(20 each). Individual run values are in `results.csv` and `supplementary/results.csv`.
+**When does each policy win?** Neither, in the tested demand shapes. With the observed floor
+the forecast can only make a dispatch earlier, never later. It did so in one S2 seed (7 s,
+Δ −2.3 s) and by 1 s in one S8 seed. In the other 38 pairs the observed queue reached the
+threshold within the same second as the forecast. The forecast fires early only when it
+crosses 6 people before the queue does, and the model, fitted for MAE, under-predicts a rising
+queue. Two limits would cap any benefit anyway: a bus boards at most four passengers per stop
+(8–12 of 17–24 arrivals board in an S2 episode under either policy), and under sustained demand both
+policies redispatch as soon as the bus returns, so only the first dispatch can move. The forecast
+is more accurate than persistence (T03); that accuracy does not translate into lower waits here.
 
-The scripted pedestrian of S8 (80–85 s) is the stimulus of 15.1, "existing movement stops
-safely as needed": the simulator places it directly inside C at 80 s. The harness (since 2.2)
-classifies every robot/bus + pedestrian episode from the raw trace (`crossing_occupancy.csv`):
-a *pedestrian intrusion* when the robot / bus already owned and occupied C and no pedestrian
-was inside in the sample before, otherwise *hub-caused*, which must be zero. Intrusions stay
-in the strict-occupancy count, are not erased by any grace interval, and are judged by the
-response: zero command within 0.20 s and measured standstill within 1000 ms. In the final matrix no episode of either kind occurred.
+Repeated runs, mean ± standard deviation (n runs): S3 position error 0.109 ± 0.017 m, yaw
+0.005 ± 0.055 rad, ETA error at 5 m −0.85 ± 0.21 s (10); S7 arrival error 0.095 ± 0.002 m,
+standstill after the replan decision 82 ± 41 ms (10); measured standstill after e-stop
+36.4 ± 11.1 ms (6); zero output after a process kill 0.53 ± 0.03 s (10). All-passenger wait
+(lower bound) per episode: S2 126.4 ± 11.3 s predictive, 126.4 ± 10.9 s reactive; S8
+134.1 ± 13.7 s, 133.8 ± 13.2 s; completion rate S2 0.54 ± 0.05 / 0.53 ± 0.05, S8
+0.69 ± 0.06 / 0.69 ± 0.06 (20 each). Individual run values are in `results.csv`.
+
+The harness (since 2.2) classifies every robot/bus + pedestrian episode in C from the raw trace
+(`crossing_occupancy.csv`): a *pedestrian intrusion* when the robot / bus already owned and
+occupied C and no pedestrian was inside in the sample before, otherwise *hub-caused*, which must
+be zero. Intrusions stay in the strict-occupancy count, are not erased by any grace interval,
+and are judged by the response: measured standstill within 1000 ms. A T15
+pedestrian_in_crossing case passes only if an intrusion actually happened, the standstill was
+measured, and the mission completed afterwards.
 
 Not covered: a surveyed calibration of a real queue scene (the PETS mapping is an evaluation
 mapping; surveyed floor points need a physical site) and measured energy (the energy model is
