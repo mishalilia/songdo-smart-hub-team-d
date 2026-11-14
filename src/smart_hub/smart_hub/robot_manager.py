@@ -6,8 +6,11 @@ Action servers /robot/escort (EscortPassenger) and /robot/navigate_to (NavigateT
 /robot/confirm_ready (std_srvs/Trigger). Short 20 Hz state-machine ticks (no blocking
 loops): TO_PICKUP -> WAIT_READY -> ESCORT -> ARRIVED; PLANNING, WAIT_CROSSING and
 STOPPING pause motion. Routes come from /route/compute and crossing ownership from
-/crossing/request. Before and while traversing an edge the robot checks /traffic/edges and
-replans around a blocked edge from the last safe node. See assignment 7.2, 14, 18.5.
+/crossing/request. While moving the robot checks every remaining edge of its route against
+/traffic/edges: a blocked edge stops it at once and it replans (REROUTE, then a new ROUTE
+with the next generation number) from the last safe node, or from the node ahead when
+the blockage is further along the route. A route reply is used only by the mission and
+request that asked for it. See assignment 7.2, 13.2, 14, 18.5.
 """
 import math
 import threading
@@ -25,14 +28,14 @@ from smart_hub.hub_events import ack_reset
 from smart_hub.params import check_parameters
 from smart_hub.path_follower import follow, route_length
 from smart_hub.qos import R1, R10, R100, R1T
-from smart_hub.route_engine import DEFAULT_SPEED_MPS, edge_cost, plan
+from smart_hub.route_engine import cost_inputs, path_cost, plan
 from smart_hub_interfaces.action import EscortPassenger, NavigateTo
 from smart_hub_interfaces.msg import EdgeStateArray, HubEvent, SafetyState
 from smart_hub_interfaces.srv import ComputeRoute, RequestCrossing
 from std_srvs.srv import Trigger
 
 ROBOT_ID = 'robot1'
-RADIUS = 0.20
+RADIUS = hub_map.FOOTPRINT_RADIUS_M['robot']
 WAYPOINT_TOLERANCE_M = 0.08
 STOPPED_MPS = 0.02
 SERVICE_TIMEOUT_SEC = 1.0
@@ -40,6 +43,7 @@ SERVICE_RETRIES = 2
 CROSSING_RETRY_SEC = 0.5
 RENEW_PERIOD_SEC = 0.5
 REPLAN_WAIT_SEC = 2.0
+REROUTE_HOLD_SEC = 0.3      # standstill before a replanned route is taken (> 2 truth samples)
 EDGES_STALE_SEC = 1.5
 
 
@@ -48,8 +52,23 @@ def segment_crosses_c(p, q):
 
 
 def footprint_in_c(x, y):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - RADIUS <= x <= xmax + RADIUS and ymin - RADIUS <= y <= ymax + RADIUS
+    return hub_map.footprint_in_crossing(x, y, RADIUS)
+
+
+def blocked_ahead(route, i, states):
+    """Return the first blocked edge after route[i] (the node being approached), or ''."""
+    for a, b in zip(route[i:], route[i + 1:]):
+        e = states.get(hub_map.edge_id(a, b))
+        if e is not None and e.valid and e.blocked:
+            return e.edge_id
+    return ''
+
+
+def trim_turn_back(route, turn_back):
+    """Drop the node ahead from a new route that immediately returns to `turn_back`."""
+    if turn_back and len(route) > 1 and route[1] == turn_back:
+        return route[1:]
+    return route
 
 
 class Mission:
@@ -73,6 +92,8 @@ class Mission:
         self.current_node = ''
         self.edge_checked = False
         self.excluded = set()
+        self.turn_back = ''                               # node behind, mid-edge replan
+        self.generation = 0                               # accepted routes so far
         self.ready = False
         self.wait_since = 0.0
         self.arrive_since = None
@@ -290,6 +311,7 @@ class RobotManager(Node):
         if m.terminal is not None:
             return
         self.command()
+        self.drop('route')               # a late route reply cannot reach another mission
         m.terminal = (status, reason)
         if self.mission is m:
             self.mission = None
@@ -341,6 +363,8 @@ class RobotManager(Node):
         future, sent, attempt = self.pending[name]
         if future is not None and future.done():
             del self.pending[name]
+            if future.cancelled():
+                return 'failed', 'CANCELLED'
             try:
                 return 'done', future.result()
             except Exception as exc:
@@ -353,6 +377,12 @@ class RobotManager(Node):
                 return 'failed', 'TIMEOUT'
             return 'timeout', None
         return 'wait', None
+
+    def drop(self, name):
+        """Forget a pending call; its reply, if it still comes, is never read."""
+        future = self.pending.pop(name, (None, 0.0, 0))[0]
+        if future is not None and not future.done():
+            future.cancel()
 
     def request_route(self, m, now):
         req = ComputeRoute.Request()
@@ -446,22 +476,22 @@ class RobotManager(Node):
                 m.retry_at = now + REPLAN_WAIT_SEC
                 self.event('ROUTE_UNAVAILABLE', res.reason, m.request_id)
         elif status == 'done':
-            m.route, m.i, m.edge_checked = list(res.node_ids), 0, False
+            route = trim_turn_back(list(res.node_ids), m.turn_back)
+            m.route, m.i, m.edge_checked, m.turn_back = route, 0, False, ''
+            m.generation += 1
             m.state = 'MOVING'
-            self.event('ROUTE', '%s %s cost=%.1fs' % (
-                m.phase, '-'.join(m.route), res.estimated_cost_sec), m.request_id)
+            self.event('ROUTE', '%s %s cost=%.1fs gen=%d' % (
+                m.phase, '-'.join(m.route), res.estimated_cost_sec, m.generation),
+                m.request_id)
 
     def route_cost(self, nodes):
-        """Cost of a node path with the planner's formula and the current edge states."""
-        edges, _ = self.edges
-        cost = 0.0
-        for a, b in zip(nodes, nodes[1:]):
-            e = edges.get(hub_map.edge_id(a, b))
-            if e is None or not e.valid or e.blocked:
-                return math.inf
-            speed = max(e.mean_speed_mps, 0.05) if e.density_ratio > 0.0 else DEFAULT_SPEED_MPS
-            cost += edge_cost(hub_map.edge_length(a, b), speed, e.density_ratio)
-        return cost
+        """
+        Cost of a node path with the planner's formula and the robot's own edge snapshot.
+
+        Both sides of a replan comparison are priced here, from one snapshot, so the
+        planner's crossing-wait term (charged per passage of C) cannot bias the ratio.
+        """
+        return path_cost(nodes, *cost_inputs(self.edges[0], 'robot')[:3])
 
     def state_check_route(self, m, now):
         """Switch route only if the alternative is at least replan_improvement_ratio cheaper."""
@@ -472,16 +502,19 @@ class RobotManager(Node):
         status, res = self.poll('route', now)
         if status == 'wait':
             return
+        self.drop('route')
         m.state = 'MOVING'
         remaining = m.route[m.i - 1:]
         if status != 'done' or not res.success or list(res.node_ids) == remaining:
             return
         current = self.route_cost(remaining)
+        offered = self.route_cost(list(res.node_ids))
         ratio = self.get_parameter('replan_improvement_ratio').value
-        if res.estimated_cost_sec <= (1.0 - ratio) * current:
-            self.event('REPLAN_CONGESTION', '%s (%.1fs) -> %s (%.1fs)' % (
-                '-'.join(remaining), current, '-'.join(res.node_ids), res.estimated_cost_sec),
-                m.request_id)
+        if math.isfinite(current) and offered <= (1.0 - ratio) * current:
+            m.generation += 1
+            self.event('REPLAN_CONGESTION', '%s (%.1fs) -> %s (%.1fs) gen=%d' % (
+                '-'.join(remaining), current, '-'.join(res.node_ids), offered,
+                m.generation), m.request_id)
             m.route, m.i, m.edge_checked = list(res.node_ids), 0, False
             m.replans += 1
 
@@ -506,14 +539,13 @@ class RobotManager(Node):
                 return
             if status == 'blocked':
                 # Stop and replan from the last safe node (reversing to it if mid-edge).
-                self.command()
-                m.excluded.add(hub_map.edge_id(prev, target))
-                m.current_node = prev
-                m.replans += 1
-                m.state = 'PLANNING'
-                self.event('REROUTE', 'edge %s blocked' % hub_map.edge_id(prev, target),
-                           m.request_id)
+                self.reroute(m, hub_map.edge_id(prev, target), prev, '')
                 return
+        ahead = blocked_ahead(m.route, m.i, self.edges[0])
+        if ahead:
+            # Invalid route: stop and replan now instead of at the next node (13.2).
+            self.reroute(m, ahead, target, prev or '')
+            return
         if not m.edge_checked:
             needs_c = segment_crosses_c((x, y), hub_map.NODES[target]) and \
                 not footprint_in_c(x, y)
@@ -549,6 +581,18 @@ class RobotManager(Node):
         else:
             m.state, m.wait_since, m.ready = 'WAIT_READY', now, False
             self.event('PICKUP_ARRIVED', 'waiting for /robot/confirm_ready', m.request_id)
+
+    def reroute(self, m, blocked_edge, from_node, turn_back):
+        """Stop, exclude the blocked edge and replan from `from_node`."""
+        self.command()
+        self.drop('route')
+        old = '-'.join(m.route[max(m.i - 1, 0):])
+        m.excluded.add(blocked_edge)
+        m.current_node, m.turn_back = from_node, turn_back
+        m.replans += 1
+        m.state, m.retry_at = 'PLANNING', time.monotonic() + REROUTE_HOLD_SEC
+        self.event('REROUTE', 'edge %s blocked old=%s from=%s gen=%d' % (
+            blocked_edge, old, from_node, m.generation), m.request_id)
 
     def state_wait_crossing(self, m, now):
         self.command()

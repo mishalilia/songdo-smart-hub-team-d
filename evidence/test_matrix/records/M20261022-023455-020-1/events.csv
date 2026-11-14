@@ -1,0 +1,20 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.008,scenario_runner,RUN_START,seed=2,S5_FREE-m29120-s2-20261022-030840
+0.002,scenario_runner,SCENARIO_STARTED,waited=45.0s missing=parking_manager,S5_FREE-m29120-s2-20261022-030840
+0.019,A-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,A-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,B-Cn,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,B-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,Cn-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,Cn-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,Cn-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,Cs-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,D-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,E-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,E-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,P1-P2,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,P2-P3,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,P3-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.019,R-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.086,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+0.218,demand_predictor,PREDICTION_UNAVAILABLE,history=1/31,

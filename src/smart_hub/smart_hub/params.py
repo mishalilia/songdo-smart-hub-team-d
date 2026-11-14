@@ -18,6 +18,7 @@ RANGES = {
     'dispatch_high': (0.0, 100.0),
     'dispatch_low': (0.0, 100.0),
     'dispatch_cooldown_sec': (0.0, 600.0),
+    'dispatch_upper_quantile': (0.0, 0.99),
     'crossing_lease_sec': (0.2, 30.0),
     # parking
     'reservation_ttl_sec': (5.0, 120.0),
@@ -31,6 +32,7 @@ RANGES = {
     'replan_improvement_ratio': (0.0, 1.0),
     'replan_period_sec': (0.5, 60.0),
     'edge_states_timeout_sec': (0.1, 10.0),
+    'crossing_wait_sec': (0.0, 60.0),
     # motion and safety
     'robot_speed_limit': (0.01, 0.5),
     'bus_speed_limit': (0.01, 1.0),
@@ -38,6 +40,7 @@ RANGES = {
     'command_timeout_sec': (0.05, 2.0),
     'pose_timeout_sec': (0.1, 5.0),
     'clearance_m': (0.0, 2.0),
+    'lateral_clearance_m': (0.0, 1.0),
     'reaction_time_sec': (0.0, 2.0),
     'min_deceleration_mps2': (0.05, 10.0),
     'arrival_tolerance_m': (0.01, 1.0),

@@ -1,0 +1,2 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.196,scenario_runner,ESCORT_RESULT,status=6 reason=SAFE_STOP,d364b307ee774b6d8c591a0f54384d49

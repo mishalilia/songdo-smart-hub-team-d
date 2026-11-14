@@ -3,29 +3,125 @@
 Verification matrix runner, T01-T18 (assignment 21).
 
 Launches the full hub for every case (scenario, variant, seed, dispatch mode), optionally
-kills a node during the run (T17 / T18), then checks the assignment pass criteria on the
-recorded run (evidence/runs/<run_id>/events.csv + summary.json). Writes
-<out>/results.csv and <out>/summary.md.
+kills a node during the run (T17 / T18), then checks the assignment pass criteria and the
+graph audit (nodes, publisher QoS, rates) on the recorded run
+(evidence/runs/<run_id>/events.csv + summary.json).
+
+Every launched attempt is appended to <out>/attempts.csv and never rewritten: harness
+version, matrix ID, attempt ID, source commit, outcome and failure class. A failure is
+`infrastructure` when the run could not be judged (no record, startup gate or graph audit
+incomplete, kill target not found) and `application` when a pass criterion failed on a
+complete run. Only an infrastructure failure is attempted a second time; both attempts
+stay in attempts.csv, and the run records of every attempt of a case that failed at least
+once are copied to <out>/records/<attempt_id>/. <out>/results.csv holds the last attempt of
+each case, and <out>/summary.md reports first-attempt and eventual totals separately.
 
   ros2 run smart_hub run_test_matrix --parallel 5 --out evidence/test_matrix
   ros2 run smart_hub run_test_matrix --cases T13 --repeat 3     # subset
 """
 import argparse
+import collections
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import glob
 import inspect
 import json
+import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
 import time
 
+from smart_hub import hub_map
+from smart_hub.demand_model import paired_bootstrap
 from smart_hub.metrics import parse_latency_ms, percentile
 
+# 1.0  first full run of 2026-10-22: node kills on a wall-clock timer, one row per case.
+# 1.1  same day: kills triggered by run events; a case whose startup gate reported missing
+#      nodes was run again and its first row overwritten (eleven T17 / T18 rows replaced).
+# 2.0  every attempt kept with an attempt ID, source commit and failure class; graph
+#      audit; strict crossing, route / replan and measured-standstill criteria.
+# 2.1  launches use the UDP transport of Fast DDS. In matrix M20261111-233205 (2.0) the
+#      shared-memory segments of earlier runs filled /dev/shm; nodes then started with mixed
+#      transports and in one S3 run route_planner received no /traffic/edges.
+# 2.2  robot/bus + pedestrian episodes in C split by cause from the raw occupancy trace:
+#      a pedestrian intruding into a crossing already granted to and occupied by the robot /
+#      bus (the 15.1 stimulus, judged by the response) versus a robot / bus entering onto a
+#      pedestrian or without a grant (hub-caused, must be zero). Matrix M20261112-054841 was
+#      re-evaluated with it; no runs were repeated.
+# 2.3  T03 and T11 run inside the matrix as offline cases with attempt IDs.
+# 2.4  dispatch policies compared on 2 x repeat paired seeds (second half = confirmation).
+# 2.5  ROS domains come from a pool: a domain is never shared by two running launches. In
+#      matrix M20261113-043251 (2.4) the domain was base + index % 60 and, with the cases
+#      started longest first, cases 60 apart ran at the same time in one domain (four cases
+#      failed twice as infrastructure: incomplete startup gate, doubled topic rates).
+# 2.6  T15 pedestrian_in_crossing: a pedestrian steps into C while the robot (FAULTS) or the
+#      bus (S3) is inside it. Since the dispatch floor (2.4) the bus of S8 has passed C before
+#      the scripted pedestrian, so the 15.1 stimulus needs cases of its own. The simulator
+#      draws arrivals from their own random stream (common random numbers): before, sensor
+#      reads at ROS-timer rates shared one stream with arrivals, so one seed gave different
+#      passengers under the two policies. Policy comparison adds the lead of the first
+#      dispatch per seed and the conditions table (lead_section).
+HARNESS_VERSION = '2.6'
+DOMAIN_POOL_SIZE = 30
+
+
+class DomainPool:
+    """ROS_DOMAIN_IDs for concurrent launches: never shared, the least recently used first."""
+
+    def __init__(self, base, size=DOMAIN_POOL_SIZE):
+        self.free = collections.deque(range(base, base + size))
+        self.cond = threading.Condition()
+
+    def acquire(self):
+        with self.cond:
+            while not self.free:
+                self.cond.wait()
+            return self.free.popleft()
+
+    def release(self, domain):
+        with self.cond:
+            self.free.append(domain)
+            self.cond.notify()
+
+
+TRANSPORT_ENV = {'FASTDDS_BUILTIN_TRANSPORTS': 'UDPv4'}    # kept if already set by the caller
+MAX_ATTEMPTS = 2           # the second one only after an infrastructure failure
+RECORD_FILES = ('events.csv', 'summary.json', 'params.json', 'crossing_occupancy.csv',
+                'harness.json')
+ATTEMPT_FIELDS = ['harness_version', 'matrix_id', 'attempt_id', 'attempt', 'commit', 'test',
+                  'scenario', 'variant', 'seed', 'mode', 'run_id', 'passed', 'failure_class',
+                  'superseded_by', 'details']
 STARTUP_SEC = 8.0          # launch -> scenario clock start (services up)
+POST_KILL_SEC = 8.0        # observation window kept after a process kill
+STANDSTILL_MS = 1000.0     # supervised stop input -> pose observed at standstill
+PEDESTRIAN_RESPONSE_MS = 1000.0     # pedestrian enters C -> robot / bus inside at standstill
+ROUTE_STOP_MS = 500.0      # REROUTE / NO_ROUTE event -> measured ground-truth standstill
+PLANNING_P95_MS = 250.0    # assignment 13.3
+FREE_FLOW_MPS = 0.35       # nominal edge speed of the cost model (13.2), restated here
+RATE_BAND = (0.8, 1.25)    # accepted measured / nominal topic rate
+ON_CHANGE_TOPICS = ('/traffic/edges', '/parking/state')   # periodic plus on change: no maximum
+# Assignment 5, restated: every node of the launch and, per audited topic, its publisher,
+# reliability, durability and nominal rate.
+GRAPH_NODES = (
+    'scenario_runner', 'passenger_detector', 'demand_predictor', 'bus_manager',
+    'parking_manager', 'traffic_monitor', 'route_planner', 'robot_manager',
+    'hub_coordinator', 'safety_supervisor', 'actuator_bridge', 'metrics_logger',
+    'dashboard_marker_publisher', 'hub_ui')
+GRAPH_TOPICS = {
+    '/camera/image_raw': ('scenario_runner', 'BEST_EFFORT', 'VOLATILE', 10.0),
+    '/hub/queue': ('passenger_detector', 'RELIABLE', 'VOLATILE', 5.0),
+    '/hub/demand': ('demand_predictor', 'RELIABLE', 'VOLATILE', 1.0),
+    '/hub/vehicles': ('scenario_runner', 'RELIABLE', 'VOLATILE', 10.0),
+    '/traffic/edges': ('traffic_monitor', 'RELIABLE', 'VOLATILE', 2.0),
+    '/crossing/state': ('hub_coordinator', 'RELIABLE', 'TRANSIENT_LOCAL', 10.0),
+    '/parking/state': ('parking_manager', 'RELIABLE', 'TRANSIENT_LOCAL', 2.0),
+    '/hub/safety': ('safety_supervisor', 'RELIABLE', 'TRANSIENT_LOCAL', 10.0),
+    '/robot/odom': ('scenario_runner', 'RELIABLE', 'VOLATILE', 20.0),
+}
 
 
 # ---------------------------------------------------------------- run helpers
@@ -56,9 +152,158 @@ def number(text, key):
     return float(m.group(1)) if m else None
 
 
+def controlled(agent_id):
+    return agent_id.startswith(('robot', 'bus'))
+
+
+def occupancy_causes(run_dir):
+    """
+    Classify every robot / bus + pedestrian episode of the raw C trace by cause.
+
+    An episode is a pedestrian intrusion when, in the sample before it starts, the same robot /
+    bus is already inside C, owns it and no pedestrian is inside: the pedestrian stepped into a
+    granted, occupied crossing. Every other start (robot / bus entering while a pedestrian is
+    inside, or inside without owning C) is hub-caused.
+    """
+    out = {'pedestrian_intrusions': 0, 'hub_caused': 0}
+    path = os.path.join(run_dir, 'crossing_occupancy.csv')
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        rows = list(csv.DictReader(f))
+    prev = None
+    for row in rows:
+        active = 'controlled_pedestrian' in row['occupancy_classes']
+        was = prev is not None and 'controlled_pedestrian' in prev['occupancy_classes']
+        if active and not was:
+            inside = {a for a in row['agents_in_c'].split() if controlled(a)}
+            before = set(prev['agents_in_c'].split()) if prev else set()
+            if prev and inside <= before and int(prev['pedestrians_in_c'] or 0) == 0 and \
+                    row['owner'] in inside:
+                out['pedestrian_intrusions'] += 1
+            else:
+                out['hub_caused'] += 1
+        prev = row
+    return out
+
+
+def add_occupancy_causes(summary, run_dir):
+    causes = occupancy_causes(run_dir)
+    if causes is not None:
+        summary['crossing']['pedestrian_episode_causes'] = causes
+    return summary
+
+
+def safety_problems(summary):
+    """
+    Return the violated safety measures of a run (empty list: none).
+
+    Contact, token overlap, a second robot / bus or a car together with a robot / bus in C,
+    and entry of a robot / bus without the grant or onto a pedestrian must all be zero.
+    A pedestrian may step into a granted crossing (pedestrians have priority), so that
+    occupancy is reported as it is and the criterion is the response: every robot / bus
+    inside C measured at standstill within PEDESTRIAN_RESPONSE_MS. A robot / bus + pedestrian
+    episode that the hub caused (occupancy_causes) must be zero. Car-only occupancy is
+    uncontrolled background traffic: recorded, not a criterion.
+    """
+    x = summary['crossing']
+    by_class = x['strict_occupancy']['by_class']
+    response = x['pedestrian_response_ms']
+    measures = {
+        'contact': summary['counts']['collisions'],
+        'token_overlap': x['token_overlaps'],
+        'robot/bus+robot/bus in C': by_class['controlled_controlled']['episodes'],
+        'robot/bus+car in C': by_class['controlled_car']['episodes'],
+        'entry without grant': x['unauthorized_entries']['no_grant'],
+        'entry onto pedestrian': x['unauthorized_entries']['pedestrian_present'],
+        'hub-caused robot/bus+pedestrian in C':
+            x.get('pedestrian_episode_causes', {}).get('hub_caused', 0),
+        'pedestrian response unresolved': x['pedestrian_response_unresolved'],
+        'pedestrian response > %d ms' % PEDESTRIAN_RESPONSE_MS:
+            int(response.get('max', 0.0) > PEDESTRIAN_RESPONSE_MS),
+    }
+    return ['%s=%d' % (k, v) for k, v in measures.items() if v]
+
+
 def safety_ok(summary):
-    c = summary['counts']
-    return c['collisions'] == 0 and c['crossing_conflicts'] == 0
+    return not safety_problems(summary)
+
+
+def graph_problems(summary, exempt=()):
+    """Compare the run's graph audit with GRAPH_NODES / GRAPH_TOPICS (empty list: equal)."""
+    graph = summary.get('graph') or {}
+    if not graph:
+        return ['no graph audit in the run record']
+    problems = ['node %s not discovered' % n for n in GRAPH_NODES
+                if n not in graph['nodes'] and n not in exempt]
+    for topic, (node, reliability, durability, hz) in GRAPH_TOPICS.items():
+        if node in exempt:
+            continue
+        seen = graph['topics'].get(topic, {})
+        if seen.get('publishers') != ['%s %s %s' % (node, reliability, durability)]:
+            problems.append('%s published by %s' % (topic, seen.get('publishers')))
+        rate = seen.get('rate_hz', 0.0)
+        top = float('inf') if topic in ON_CHANGE_TOPICS else RATE_BAND[1] * hz
+        if not RATE_BAND[0] * hz <= rate <= top:
+            problems.append('%s at %.2f Hz, nominal %.0f Hz' % (topic, rate, hz))
+    return problems
+
+
+def rate_section(rows, runs_dir):
+    """Measured rates of the audited topics over the runs of the matrix."""
+    rates = {}
+    for row in rows:
+        try:
+            with open(os.path.join(runs_dir, row['run_id'], 'summary.json')) as f:
+                topics = (json.load(f).get('graph') or {}).get('topics', {})
+        except (OSError, ValueError):
+            continue
+        for topic in GRAPH_TOPICS:
+            if topic in topics:
+                rates.setdefault(topic, []).append(topics[topic]['rate_hz'])
+    if not rates:
+        return []
+    lines = ['', '## Graph audit', '',
+             'Recorded by metrics_logger %.0f s after the start of every run: discovered '
+             'nodes, publisher and QoS of each topic, and the receive rate over the last '
+             '5 s (the runs of the matrix execute in parallel on one machine). A run is '
+             'accepted with all %d nodes, the publisher / reliability / durability below '
+             'and a rate of at least %d %% of nominal (at most %d %% for purely periodic '
+             'topics).' % (2.0, len(GRAPH_NODES), RATE_BAND[0] * 100, RATE_BAND[1] * 100), '',
+             '| Topic | Publisher | QoS | Nominal (Hz) | Runs | Measured min / median / max '
+             '(Hz) |', '|---|---|---|---|---|---|']
+    for topic, (node, reliability, durability, hz) in GRAPH_TOPICS.items():
+        v = sorted(rates.get(topic, []))
+        if v:
+            lines.append('| %s | %s | %s, %s | %.0f%s | %d | %.2f / %.2f / %.2f |' % (
+                topic, node, reliability.lower(), durability.lower().replace('_', ' '), hz,
+                ' + on change' if topic in ON_CHANGE_TOPICS else '', len(v), v[0],
+                percentile(v, 50), v[-1]))
+    return lines
+
+
+def standstill(ev, after):
+    """Return (latency_ms, observer_delay_ms) of robot1's first measured standstill."""
+    hit = first(ev, 'STANDSTILL_MEASURED', 'robot1', after=after)
+    if hit is None:
+        return None, None
+    return number(hit['reason'], 'latency_ms'), number(hit['reason'], 'observer_delay_ms')
+
+
+def crossing_text(summary):
+    x = summary['crossing']
+    by_class = x['strict_occupancy']['by_class']
+    causes = x.get('pedestrian_episode_causes')
+    ped = by_class['controlled_pedestrian']['episodes']
+    split = '' if causes is None else ': pedestrian intrusion into granted C %d, hub-caused %d' % (
+        causes['pedestrian_intrusions'], causes['hub_caused'])
+    response = x['pedestrian_response_ms']
+    stop = ' (stopped in %.0f ms)' % response['max'] if response.get('n') else ''
+    return 'strict occupancy %d (robot/bus+ped %d%s%s, car-only %d), unauthorized %d, ' \
+        'token overlap %d' % (
+            x['strict_occupancy']['episodes'], ped, split, stop,
+            by_class['car_car']['episodes'] + by_class['car_pedestrian']['episodes'],
+            sum(x['unauthorized_entries'].values()), x['token_overlaps'])
 
 
 # ---------------------------------------------------------------- checks
@@ -80,6 +325,41 @@ def check_s1(ev, summary):
         stable, delay if delay is not None else -1), {'freeze_to_unknown_s': delay}
 
 
+def wait_metrics(summary):
+    """Passenger-wait columns of results.csv (boarded and censored all-passenger waits)."""
+    queue = summary['queue']
+    wait, everyone = queue['wait_boarded_sec'], queue['wait_all_lower_bound_sec']
+    return {'queue_wait_mean_s': wait.get('mean'), 'queue_wait_p50_s': wait.get('p50'),
+            'queue_wait_p95_s': wait.get('p95'), 'queue_wait_n': wait.get('n'),
+            'wait_all_lower_bound_mean_s': everyone.get('mean'),
+            'wait_all_lower_bound_p95_s': everyone.get('p95'), 'arrived': queue['arrived'],
+            'boarded': queue['boarded'], 'abandoned': queue['abandoned'],
+            'waiting_at_end': queue['waiting_at_end'],
+            'completion_rate': queue['completion_rate']}
+
+
+ARRIVAL_MATCH_SEC = 0.25    # same simulator step, seen through ROS event stamps
+
+
+def arrival_times(ev):
+    """Return the times of every arrival attempt (entered Q or balked at a full Q)."""
+    return ';'.join('%.2f' % e['t'] for e in ev
+                    if e['event'] in ('QUEUE_ENTERED', 'QUEUE_BALKED'))
+
+
+def same_arrivals(a, b):
+    """Tell whether two runs saw the same arrival attempts (common random numbers, 9.4)."""
+    ta = [float(x) for x in (a or '').split(';') if x]
+    tb = [float(x) for x in (b or '').split(';') if x]
+    return bool(ta) and len(ta) == len(tb) and \
+        all(abs(x - y) <= ARRIVAL_MATCH_SEC for x, y in zip(ta, tb))
+
+
+def first_dispatch_s(ev):
+    hit = first(ev, 'DISPATCH_REQUESTED', 'bus1')
+    return hit['t'] if hit else None
+
+
 def check_s2_dispatch(ev, summary):
     outstanding, overlaps = 0, 0
     reasons = []
@@ -91,7 +371,13 @@ def check_s2_dispatch(ev, summary):
         elif e['event'] == 'DISPATCH_RESULT':
             outstanding = max(0, outstanding - 1)
     ok = reasons and overlaps == 0 and not all_of(ev, 'DISPATCH_REJECTED') and safety_ok(summary)
-    return ok, 'dispatches %s, overlapping %d' % (reasons, overlaps), {'dispatches': len(reasons)}
+    queue = summary['queue']
+    wait = queue['wait_boarded_sec']
+    return ok, 'dispatches %s, overlapping %d; boarded %d of %d arrived, boarded wait mean ' \
+        '%s s' % (reasons, overlaps, queue['boarded'], queue['arrived'],
+                  '%.1f' % wait['mean'] if wait.get('n') else '-'), \
+        dict(wait_metrics(summary), dispatches=len(reasons),
+             first_dispatch_s=first_dispatch_s(ev), arrival_times=arrival_times(ev))
 
 
 def check_dock_ok(ev, summary, eta_required=True):
@@ -116,6 +402,21 @@ def check_dock_ok(ev, summary, eta_required=True):
 def check_dock_disturbed(ev, summary):
     # A pedestrian or blocked bay makes the bus wait, so the 5 m ETA is not a target here.
     return check_dock_ok(ev, summary, eta_required=False)
+
+
+def check_pedestrian_in_crossing(base):
+    """15.1: a pedestrian intrudes into an occupied C; the movement stops, then completes."""
+    def check(ev, summary):
+        ok, detail, values = base(ev, summary)
+        causes = summary['crossing'].get('pedestrian_episode_causes') or {}
+        response = summary['crossing']['pedestrian_response_ms']
+        intrusions = causes.get('pedestrian_intrusions', 0)
+        ok = ok and intrusions >= 1 and response.get('n', 0) >= 1
+        values = dict(values, pedestrian_response_ms=response.get('max'))
+        return ok, 'pedestrian intrusions %d, standstill %s ms (limit %d); %s' % (
+            intrusions, '-' if not response.get('n') else '%.0f' % response['max'],
+            PEDESTRIAN_RESPONSE_MS, detail), values
+    return check
 
 
 def check_dock_cancel(ev, summary):
@@ -234,24 +535,40 @@ def check_free_flow(ev, summary):
 
 
 def check_estop(ev, summary):
+    """Zero output within 0.20 s of the E-stop (16.3) and a measured standstill after it."""
     latch = first(ev, 'STOP_LATCHED', reason_has='ESTOP')
     lat = parse_latency_ms(latch['reason']) if latch else None
+    still, delay = standstill(ev, latch['t'] - 0.1) if latch else (None, None)
     abort = first(ev, 'GOAL_ABORT', 'robot1', after=latch['t'] - 0.1 if latch else 1e9)
     restart = first(ev, 'GOAL_ACCEPTED', 'robot1', after=latch['t'] if latch else 1e9)
     ok = lat is not None and lat <= 200.0 and bool(abort) and not restart and \
-        safety_ok(summary)
-    return ok, 'stop latency %.2f ms, mission %s, no restart: %s' % (
-        lat or -1, abort['reason'] if abort else 'not aborted', not restart), {
-        'stop_latency_ms': lat}
+        still is not None and still <= STANDSTILL_MS and safety_ok(summary)
+    details = 'zero command %.2f ms, measured standstill %s ms, mission %s, ' \
+        'no restart: %s' % (lat or -1, '-' if still is None else '%.0f' % still,
+                            abort['reason'] if abort else 'not aborted', not restart)
+    return ok, details, {
+        'stop_latency_ms': lat, 'standstill_ms': still, 'observer_delay_ms': delay}
 
 
 def check_escort_ok(ev, summary):
+    """Arrival within tolerance; an injected obstacle must show the causal replan chain."""
     arrived = first(ev, 'ARRIVED', 'robot1')
     err = number(arrived['reason'], 'error_m') if arrived else None
-    ok = bool(first(ev, 'GOAL_SUCCEED', 'robot1')) and err is not None and err <= 0.20 and \
-        safety_ok(summary)
-    return ok, 'arrival error %.3f m, replans %d' % (
-        err if err is not None else -1, summary['counts']['reroutes']), {'arrival_err_m': err}
+    problems = safety_problems(summary)
+    if not first(ev, 'GOAL_SUCCEED', 'robot1') or err is None or err > 0.20:
+        problems.append('no arrival within 0.20 m')
+    detail = 'arrival error %.3f m' % (err if err is not None else -1)
+    values = {'arrival_err_m': err}
+    if injected(ev, 'place_obstacle'):
+        chain, found = replan_chain(ev)
+        problems.extend(chain)
+        if found.get('new_path') == 'NO_ROUTE':
+            problems.append('NO_ROUTE although a detour exists')
+        detail += '; ' + chain_text(found)
+        values['route_stop_ms'] = found.get('stop_ms')
+    if problems:
+        detail += '; FAILED: ' + '; '.join(problems)
+    return not problems, detail, values
 
 
 def check_goal_outcome(event, reason, extra=None):
@@ -278,25 +595,43 @@ def check_s8(ev, summary):
         elif e['event'] == 'DISPATCH_RESULT':
             outstanding -= 1
     slots = [e['reason'].split()[0] for e in all_of(ev, 'SLOT_RESERVED') if 'ttl=' in e['reason']]
-    wait = summary['queue_wait_sec']
-    ok = safety_ok(summary) and overlaps == 0 and len(slots) == len(set(slots)) and \
-        bool(first(ev, 'GOAL_SUCCEED', 'robot1'))
-    return ok, 'collisions %d, conflicts %d, overlapping dispatch %d, queue wait mean %s s' % (
-        summary['counts']['collisions'], summary['counts']['crossing_conflicts'], overlaps,
-        '%.1f' % wait['mean'] if wait.get('n') else '-'), {
-        'queue_wait_mean_s': wait.get('mean'), 'boarded': summary['counts']['boarded']}
+    queue = summary['queue']
+    wait, everyone = queue['wait_boarded_sec'], queue['wait_all_lower_bound_sec']
+    problems = safety_problems(summary)
+    if overlaps or len(slots) != len(set(slots)):
+        problems.append('overlapping dispatch %d, duplicate slot grants %d' % (
+            overlaps, len(slots) - len(set(slots))))
+    if not first(ev, 'GOAL_SUCCEED', 'robot1'):
+        problems.append('no escort completed')
+    detail = 'collisions %d, %s; boarded %d of %d arrived (abandoned %d, waiting at end ' \
+        '%d); boarded wait mean %s s, all-passenger wait >= %s s' % (
+            summary['counts']['collisions'], crossing_text(summary), queue['boarded'],
+            queue['arrived'], queue['abandoned'], queue['waiting_at_end'],
+            '%.1f' % wait['mean'] if wait.get('n') else '-',
+            '%.1f' % everyone['mean'] if everyone.get('n') else '-')
+    if problems:
+        detail += '; FAILED: ' + '; '.join(problems)
+    values = dict(wait_metrics(summary), first_dispatch_s=first_dispatch_s(ev),
+                  arrival_times=arrival_times(ev))
+    return not problems, detail, values
 
 
 def check_s9(ev, summary):
     latch = first(ev, 'STOP_LATCHED', reason_has='ESTOP')
     lat = parse_latency_ms(latch['reason']) if latch else None
+    still, delay = standstill(ev, latch['t'] - 0.1) if latch else (None, None)
     rejected = first(ev, 'CLEAR_STOP_REJECTED', after=latch['t'] if latch else 0)
     cleared = first(ev, 'STOP_CLEARED', after=rejected['t'] if rejected else 1e9)
     restart = first(ev, 'GOAL_ACCEPTED', 'robot1', after=latch['t'] if latch else 1e9)
     ok = lat is not None and lat <= 200 and bool(rejected) and bool(cleared) and \
+        still is not None and still <= STANDSTILL_MS and safety_ok(summary) and \
         not restart and bool(first(ev, 'GOAL_ABORT', 'robot1', reason_has='SAFE_STOP'))
-    return ok, 'stop latency %.2f ms, reset rejected while stale: %s, then accepted: %s' % (
-        lat or -1, bool(rejected), bool(cleared)), {'stop_latency_ms': lat}
+    details = 'zero command %.2f ms, measured standstill %s ms, reset rejected while ' \
+        'stale: %s, then accepted: %s' % (
+            lat or -1, '-' if still is None else '%.0f' % still, bool(rejected),
+            bool(cleared))
+    return ok, details, {
+        'stop_latency_ms': lat, 'standstill_ms': still, 'observer_delay_ms': delay}
 
 
 def check_after_kill(event, entity, within):
@@ -320,10 +655,250 @@ def check_parking_stale(ev, summary):
     return ok, 'P2 becomes UNKNOWN when its sensor is stale', {}
 
 
+# ---------------------------------------------------------------- route checks
+def path_edges(path):
+    return [hub_map.edge_id(a, b) for a, b in zip(path, path[1:])]
+
+
+def path_problems(path, agent, goal, blocked=(), start=None):
+    """Continuity / permission problems of a node path, checked against the map only."""
+    allowed = {hub_map.edge_id(a, b) for a, b in hub_map.allowed_edges(agent)}
+    out = []
+    if not path or path[-1] != goal or (start is not None and path[0] != start):
+        out.append('endpoints %s' % '-'.join(path))
+    if len(set(path)) != len(path):
+        out.append('repeated node')
+    for e in path_edges(path):
+        if e not in allowed:
+            out.append('edge %s not permitted for %s' % (e, agent))
+        if e in blocked:
+            out.append('uses blocked edge %s' % e)
+    return out
+
+
+def free_flow_cost(path, wait_sec=0.0):
+    """Independent cost of a path without traffic: map lengths / nominal speed + wait."""
+    return sum(math.dist(hub_map.NODES[a], hub_map.NODES[b])
+               for a, b in zip(path, path[1:])) / FREE_FLOW_MPS + wait_sec
+
+
+def blocked_edges_at(events, t):
+    """Edges whose latest traffic_monitor label at time t is BLOCKED."""
+    label = {}
+    for e in sorted(events, key=lambda e: e['t']):
+        if e['event'].startswith('EDGE_') and e['t'] <= t:
+            label[e['entity_id']] = e['event']
+    return {edge for edge, name in label.items() if name == 'EDGE_BLOCKED'}
+
+
+def route_reply(events, label):
+    """Return the logged /route/compute reply of one route_request and the planner record."""
+    e = next((e for e in events if e['event'] == 'ROUTE_REPLY' and
+              e['correlation_id'] == label), None)
+    if e is None or 'success=' not in e['reason']:
+        return None
+    fields = dict(f.split('=', 1) for f in e['reason'].split() if '=' in f)
+    path = [] if fields['path'] == '-' else fields['path'].split('-')
+    head = e['reason'].split()[0]
+    planner = [p for p in events if p['event'] in ('ROUTE_COMPUTED', 'ROUTE_FAILED') and
+               p['reason'].startswith(head + ' ') and e['t'] - 1.0 <= p['t'] <= e['t']]
+    record = planner[-1]['reason'] if planner else ''
+    return {'t': e['t'], 'success': fields['success'] == 'true', 'reason': fields['reason'],
+            'path': path, 'cost': float(fields['cost']),
+            'round_trip_ms': float(fields['latency_ms']),
+            'wait': number(record, 'crossing_wait'),
+            'edges_age_ms': number(record, 'edges_age_ms'), 'planner_record': record}
+
+
+def replan_chain(ev, agent='robot1', kind='robot'):
+    """
+    Causal replanning evidence for a blockage injected on the active route (13.2, 14.3).
+
+    Order required on the recorded stamps: accepted ROUTE (old path) -> obstacle injected
+    -> EDGE_BLOCKED for an edge of the old path -> REROUTE naming that edge ->
+    ROUTE_STOP_MEASURED within ROUTE_STOP_MS -> new ROUTE with a higher generation that
+    is continuous, permitted and avoids the blocked edge (or an explicit NO_ROUTE).
+    """
+    problems, values = [], {}
+    routes = [e for e in all_of(ev, 'ROUTE', agent) if ' gen=' in e['reason']]
+    injections = [e for e in all_of(ev, 'INJECT', 'scenario_runner')
+                  if e['reason'] in ('place_obstacle', 'block_edges')]
+    if not injections:
+        return ['no blockage injected'], values
+    # The first blockage injected while the agent holds an accepted route.
+    inject = next((i for i in injections if any(r['t'] < i['t'] for r in routes)), None)
+    if inject is None:
+        return ['no accepted route before the blockage'], values
+    old = [e for e in routes if e['t'] < inject['t']][-1]
+    old_path = old['reason'].split()[1].split('-')
+    blocked = [e for e in ev if e['event'] == 'EDGE_BLOCKED' and e['t'] >= inject['t'] - 0.05
+               and e['entity_id'] in path_edges(old_path)]
+    if not blocked:
+        return ['no EDGE_BLOCKED on the active route %s' % '-'.join(old_path)], values
+    edge, t_blocked = blocked[0]['entity_id'], blocked[0]['t']
+    reroute = first(ev, 'REROUTE', agent, after=t_blocked - 1e-6,
+                    reason_has='edge %s blocked' % edge)
+    if reroute is None:
+        return ['no REROUTE after EDGE_BLOCKED %s' % edge], values
+    stop = first(ev, 'ROUTE_STOP_MEASURED', agent, after=reroute['t'] - 1e-6)
+    stop_ms = parse_latency_ms(stop['reason']) if stop else None
+    if stop_ms is None or stop_ms > ROUTE_STOP_MS:
+        problems.append('stop after REROUTE %s ms' % stop_ms)
+    new = first(ev, 'ROUTE', agent, after=reroute['t'])
+    no_route = first(ev, 'NO_ROUTE', agent, after=reroute['t'])
+    values.update(old_path='-'.join(old_path), blocked_edge=edge,
+                  detect_ms=round((t_blocked - inject['t']) * 1000.0),
+                  react_ms=round((reroute['t'] - t_blocked) * 1000.0),
+                  stop_ms=None if stop_ms is None else round(stop_ms))
+    if new is None and no_route is None:
+        problems.append('neither a new route nor NO_ROUTE after REROUTE')
+    elif new is not None and (no_route is None or new['t'] < no_route['t']):
+        new_path = new['reason'].split()[1].split('-')
+        goal = old_path[-1]
+        problems += path_problems(new_path, kind, goal, blocked_edges_at(ev, new['t']))
+        if edge in path_edges(new_path):
+            problems.append('new route keeps blocked edge %s' % edge)
+        if number(new['reason'], 'gen') <= number(old['reason'], 'gen'):
+            problems.append('route generation did not advance')
+        if not set(path_edges(old_path)) - set(path_edges(new_path)):
+            problems.append('route unchanged')
+        values.update(new_path='-'.join(new_path),
+                      replan_ms=round((new['t'] - reroute['t']) * 1000.0))
+    else:
+        values.update(new_path='NO_ROUTE',
+                      replan_ms=round((no_route['t'] - reroute['t']) * 1000.0))
+    return problems, values
+
+
+def chain_text(values):
+    return '%s -> %s (blocked %s; detect %s ms, react %s ms, stop %s ms, replan %s ms)' % (
+        values.get('old_path'), values.get('new_path'), values.get('blocked_edge'),
+        values.get('detect_ms'), values.get('react_ms'), values.get('stop_ms'),
+        values.get('replan_ms'))
+
+
 def check_s6(ev, summary):
-    labels = [(e['entity_id'], e['event']) for e in ev if e['event'].startswith('EDGE_')]
-    ok = ('Cs-J', 'EDGE_BLOCKED') in labels and ('B-Cn', 'EDGE_BLOCKED') in labels
-    return ok, 'Cs-J and B-Cn reported BLOCKED; planner oracle in unit tests', {}
+    """T11 / T12 on the live graph: service replies, causal NO_ROUTE stop, restore."""
+    problems = []
+    replies = {label: route_reply(ev, label)
+               for label in ('baseline', 'detour', 'congested', 'no_route', 'restored')}
+    for label, r in replies.items():
+        if r is None:
+            problems.append('%s: no reply' % label)
+    if problems:
+        return False, '; '.join(problems), {}
+
+    def expect(label, path=None, exact_cost=True):
+        r = replies[label]
+        blocked = blocked_edges_at(ev, r['t'])
+        if not r['success']:
+            problems.append('%s: %s' % (label, r['reason']))
+            return
+        found = path_problems(r['path'], 'car', 'E', blocked, start='A')
+        if path is not None and r['path'] != path:
+            found.append('path %s' % '-'.join(r['path']))
+        if r['wait'] is None or r['edges_age_ms'] is None:
+            found.append('planner record incomplete')
+        else:
+            floor = free_flow_cost(r['path'], r['wait'])
+            if exact_cost and not math.isclose(r['cost'], floor, rel_tol=1e-6):
+                found.append('cost %.6f != %.6f' % (r['cost'], floor))
+            if r['cost'] < floor * (1.0 - 1e-6):
+                found.append('cost %.6f below free flow %.6f' % (r['cost'], floor))
+        problems.extend('%s: %s' % (label, p) for p in found)
+
+    expect('baseline', ['A', 'Cs', 'J', 'E'])
+    if 'Cs-J' not in blocked_edges_at(ev, replies['detour']['t']):
+        problems.append('detour: Cs-J not BLOCKED at request time')
+    expect('detour', ['A', 'N', 'Cn', 'B', 'U', 'E'])
+    expect('congested', exact_cost=False)
+    r = replies['no_route']
+    if not {'Cs-J', 'B-Cn'} <= blocked_edges_at(ev, r['t']):
+        problems.append('no_route: corridors not both BLOCKED at request time')
+    if r['success'] or r['reason'] != 'NO_ROUTE' or r['path']:
+        problems.append('no_route: reply %s %s' % (r['reason'], '-'.join(r['path'])))
+    if blocked_edges_at(ev, replies['restored']['t']) & {'Cs-J', 'B-Cn'}:
+        problems.append('restored: corridor still BLOCKED at request time')
+    expect('restored', exact_cost=False)
+
+    # The manager with an active route through both corridors must stop and fail.
+    chain, values = replan_chain(ev)
+    problems.extend(chain)
+    stops = summary.get('route_stops', {})
+    abort = first(ev, 'GOAL_ABORT', 'robot1', reason_has='NO_ROUTE')
+    if values.get('new_path') != 'NO_ROUTE' or abort is None:
+        problems.append('robot did not end with NO_ROUTE')
+    if stops.get('motion_without_route', 1) or stops.get('unresolved', 1) or \
+            not stops.get('held_samples', {}).get('robot1'):
+        problems.append('zero motion after NO_ROUTE not shown: %s' % json.dumps(stops))
+    compute = [parse_latency_ms(e['reason']) for e in ev
+               if e['event'] in ('ROUTE_COMPUTED', 'ROUTE_FAILED')]
+    p95 = percentile(compute, 95) if compute else None
+    if p95 is None or p95 >= PLANNING_P95_MS:
+        problems.append('planning p95 %s ms' % p95)
+    problems.extend(safety_problems(summary))
+    detail = '; '.join(problems) if problems else (
+        'baseline %.3fs, detour %.3fs, congested via %s, NO_ROUTE with both corridors '
+        'blocked, restored via %s; robot %s, held %d samples at standstill; '
+        'planning p95 %.2f ms (n=%d)' % (
+            replies['baseline']['cost'], replies['detour']['cost'],
+            '-'.join(replies['congested']['path']), '-'.join(replies['restored']['path']),
+            chain_text(values), stops['held_samples']['robot1'], p95, len(compute)))
+    return not problems, detail, {'planning_p95_ms': p95, 'route_stop_ms': values.get('stop_ms')}
+
+
+DEMAND_SEED, DEMAND_EPISODES, DEMAND_EXTRA = 1000, 30, 24     # as train_demand_model
+INFERENCE_P95_MS = 100.0
+
+
+def check_t03():
+    """T03: the installed model against persistence on every unseen episode, paired."""
+    from ament_index_python.packages import get_package_share_directory
+    from smart_hub.demand_model import RidgeModel, split_episodes
+    from smart_hub.train_demand_model import episode_errors, generate_episode, stack
+    model = RidgeModel.load(os.path.join(get_package_share_directory('smart_hub'), 'models',
+                                         'demand_ridge.json'))
+    train, val, test = split_episodes(DEMAND_EPISODES)
+    if set(train) & set(test) or set(val) & set(test):
+        return False, 'test episodes overlap training or validation', {}
+    test_seeds = [DEMAND_SEED + i for i in test]
+    unseen = test_seeds + [DEMAND_SEED + DEMAND_EPISODES + i for i in range(DEMAND_EXTRA)]
+    series = {seed: generate_episode(seed) for seed in unseen}
+    rows = [episode_errors(model, seed, series[seed]) for seed in unseen]
+    X, _, _ = stack([series[seed] for seed in test_seeds], range(len(test_seeds)))
+    spent = []
+    for x in X:
+        start = time.perf_counter()
+        model.predict(x)
+        spent.append((time.perf_counter() - start) * 1000.0)
+    test_rows = rows[:len(test_seeds)]
+    model_mae = sum(r['model_mae'] for r in test_rows) / len(test_rows)
+    base_mae = sum(r['persistence_mae'] for r in test_rows) / len(test_rows)
+    deltas = [r['delta_mae'] for r in rows]
+    boot = paired_bootstrap(deltas)
+    p95 = percentile(spent, 95)
+    ok = model_mae <= base_mae and boot['ci95_high'] < 0 and p95 < INFERENCE_P95_MS
+    details = 'model %s: test MAE %.3f vs persistence %.3f (%d episodes); all %d unseen ' \
+        'episodes paired delta %.3f [%.3f, %.3f], model better in %d; inference p95 ' \
+        '%.4f ms' % (model.model_id, model_mae, base_mae, len(test_rows), len(rows),
+                     boot['mean'], boot['ci95_low'], boot['ci95_high'],
+                     sum(d < 0 for d in deltas), p95)
+    return ok, details, {'model_mae': round(model_mae, 4),
+                         'persistence_mae': round(base_mae, 4), 'inference_p95_ms': p95}
+
+
+def check_t11():
+    """T11: the planner against the independent oracle of tests/test_route_oracle.py."""
+    tests = os.path.join('src', 'smart_hub', 'tests')
+    files = [os.path.join(tests, f) for f in ('test_route_oracle.py', 'test_route_engine.py')]
+    if not all(os.path.exists(f) for f in files):
+        raise FileNotFoundError('route tests not found under %s (run from the workspace)' %
+                                tests)
+    out = subprocess.run(['python3', '-m', 'pytest', '-q', '-p', 'no:cacheprovider'] + files,
+                         capture_output=True, text=True, timeout=600)
+    last = (out.stdout.strip().splitlines() or [''])[-1]
+    return out.returncode == 0, 'oracle on 20 seeded edge states and reference values ' \
+        '(pytest %s): %s' % (' '.join(os.path.basename(f) for f in files), last), {}
 
 
 # ---------------------------------------------------------------- cases
@@ -338,7 +913,13 @@ def build_cases(repeat):
                           'record': record and i == 0})
     seeds = tuple(range(1, repeat + 1))
     add('T01/T02', 'S1', check_s1, 45)
-    add('T04', 'S2', check_s2_dispatch, 200)
+    # S2 is the rising-demand episode of 9.4 (2 -> 6 -> 10 arrivals per minute), S8 the
+    # step surge; both policies run on the same seeds for the paired comparison.
+    # Policy comparison on 2 x repeat paired seeds: seeds 1..repeat showed the late-dispatch
+    # defect that the observed floor removes; seeds repeat+1..2*repeat confirm it.
+    policy_seeds = tuple(range(1, 2 * repeat + 1))
+    add('T04', 'S2', check_s2_dispatch, 360, seeds=policy_seeds, mode='predictive')
+    add('T04', 'S2', check_s2_dispatch, 360, seeds=policy_seeds, mode='reactive')
     add('T05', 'S3', check_dock_ok, 75, seeds=seeds, record=True)
     add('T05', 'S3', check_dock_disturbed, 85, variant='pedestrian_before_entry')
     add('T05', 'S3', check_dock_disturbed, 100, variant='blocked_bay')
@@ -348,7 +929,7 @@ def build_cases(repeat):
     add('T08', 'S4', check_s4, 45, record=True)
     add('T09/T10', 'S5', check_s5, 80, record=True)
     add('T09', 'S5_FREE', check_free_flow, 60, seeds=seeds)
-    add('T11/T12', 'S6', check_s6, 75)
+    add('T11/T12', 'S6', check_s6, 85)
     add('T13', 'S7', check_escort_ok, 120, seeds=seeds, record=True)
     add('T14', 'S7', check_goal_outcome('GOAL_ABORT', 'READY_TIMEOUT'), 40, variant='no_ready')
     add('T14', 'S7', check_escort_cancel, 30, variant='cancel_while_moving')
@@ -363,8 +944,13 @@ def build_cases(repeat):
     add('T14', 'S7', check_goal_outcome(
         'GOAL_SUCCEED', 'ARRIVED', lambda ev: bool(first(ev, 'REPLAN_CONGESTION', 'robot1'))),
         120, variant='congestion')
-    add('T15', 'S8', check_s8, 300, seeds=seeds, mode='predictive', record=True)
-    add('T15', 'S8', check_s8, 300, seeds=seeds, mode='reactive')
+    add('T15', 'S8', check_s8, 300, seeds=policy_seeds, mode='predictive', record=True)
+    add('T15', 'S8', check_s8, 300, seeds=policy_seeds, mode='reactive')
+    # The 15.1 stimulus on its own: pedestrian inside C while the robot / bus is in it.
+    add('T15', 'FAULTS', check_pedestrian_in_crossing(check_escort_ok), 75,
+        variant='pedestrian_in_crossing', seeds=seeds)
+    add('T15', 'S3', check_pedestrian_in_crossing(check_dock_disturbed), 85,
+        variant='pedestrian_in_crossing', seeds=seeds)
     add('T16', 'S9', check_s9, 45, record=True)
     # Each fault five times at different mission phases (16.3).
     phases = ('waiting', 'to_crossing', 'in_crossing', 'after_crossing', 'near_destination')
@@ -381,6 +967,12 @@ def build_cases(repeat):
             kill=(('ROUTE', 'robot1', 'ESCORT', delay), 'safety_supervisor'))
     add('T18', 'FAULTS', check_goal_outcome('GOAL_ABORT', 'PLANNER_UNAVAILABLE'), 30,
         kill=(('SCENARIO_STARTED', 'scenario_runner', '', 0.0), 'route_planner'))
+    # Offline cases (no launch): T03 on unseen episodes, T11 against the independent oracle.
+    for test, variant, check in (('T03', 'demand_holdout', check_t03),
+                                 ('T11', 'route_oracle', check_t11)):
+        cases.append({'test': test, 'scenario': 'OFFLINE', 'variant': variant, 'seed': 1000,
+                      'mode': '-', 'duration': 0, 'check': check, 'kill': None,
+                      'record': False, 'offline': True})
     return cases
 
 
@@ -404,29 +996,88 @@ def wait_for_event(runs_dir, label, seed, since, event, entity, reason_has, time
     return None
 
 
+def case_row(case):
+    return {'test': case['test'], 'scenario': case['scenario'], 'variant': case['variant'],
+            'seed': case['seed'], 'mode': case['mode'], 'run_id': '', 'failure_class': ''}
+
+
+def append_attempt(opts, lock, row):
+    """Append one attempt to <out>/attempts.csv; rows of that file are never rewritten."""
+    path = os.path.join(opts.out, 'attempts.csv')
+    with lock:
+        new = not os.path.exists(path)
+        with open(path, 'a', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=ATTEMPT_FIELDS, extrasaction='ignore')
+            if new:
+                w.writeheader()
+            w.writerow(row)
+
+
+def archive_records(opts, rows):
+    """Copy the run records of a failed case (every attempt) to <out>/records/<attempt_id>."""
+    for row in rows:
+        src = os.path.join(opts.runs_dir, row['run_id'])
+        if not row['run_id'] or not os.path.isdir(src):
+            continue
+        dst = os.path.join(opts.out, 'records', row['attempt_id'])
+        os.makedirs(dst, exist_ok=True)
+        for name in RECORD_FILES:
+            if os.path.exists(os.path.join(src, name)):
+                shutil.copy(os.path.join(src, name), dst)
+
+
 def run_case(case, index, opts, lock):
-    try:
-        row = _run_case(case, index, opts, lock)
-        if row.get('startup_missing'):
-            # The ROS graph did not come up (DDS discovery under load): an infrastructure
-            # failure, not a test result. Run the case once more and say so.
-            note = row['startup_missing']
-            row = _run_case(case, index, opts, lock, retry=True)
-            row['details'] = '%s (rerun: first attempt started without %s)' % (
-                row['details'], note)
-        row.pop('startup_missing', None)
-        return row
-    except Exception as exc:              # one broken run must not stop the matrix
+    """Run one case; only an infrastructure failure is attempted again, both are kept."""
+    rows = []
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        pool = getattr(opts, 'domains', None)
+        domain = pool.acquire() if pool else getattr(opts, 'domain_base', 30) + index % 60
+        try:
+            row = _run_case(case, index, opts, lock, attempt, domain)
+        except Exception as exc:              # one broken run must not stop the matrix
+            row = dict(case_row(case), passed=False, failure_class='infrastructure',
+                       details='runner error: %r' % exc)
+        finally:
+            if pool:
+                pool.release(domain)
+        again = row['failure_class'] == 'infrastructure' and attempt < MAX_ATTEMPTS
+        row.update(harness_version=HARNESS_VERSION, matrix_id=opts.matrix_id,
+                   attempt=attempt, commit=opts.commit_label,
+                   attempt_id='%s-%03d-%d' % (opts.matrix_id, index, attempt),
+                   superseded_by='%s-%03d-%d' % (opts.matrix_id, index, attempt + 1)
+                   if again else '')
+        append_attempt(opts, lock, row)
         with lock:
-            print('%-8s %-9s ERROR %r' % (case['test'], case['scenario'], exc), flush=True)
-        return {'test': case['test'], 'scenario': case['scenario'],
-                'variant': case['variant'], 'seed': case['seed'], 'mode': case['mode'],
-                'run_id': '', 'passed': False, 'details': 'runner error: %r' % exc}
+            print('%-8s %-9s %-26s seed %-3d %-10s #%d %s  %s' % (
+                row['test'], case['scenario'], case['variant'] or '-', case['seed'],
+                case['mode'], attempt,
+                'PASS' if row['passed'] else 'FAIL (%s)' % row['failure_class'],
+                row['details']), flush=True)
+        rows.append(row)
+        if not again:
+            break
+    if len(rows) > 1 or not rows[-1]['passed']:
+        archive_records(opts, rows)
+    first_row = rows[0]
+    return dict(rows[-1], attempts=len(rows),
+                first_attempt='pass' if first_row['passed'] else first_row['failure_class'])
 
 
-def _run_case(case, index, opts, lock, retry=False):
-    domain = opts.domain_base + index % 60           # valid ROS_DOMAIN_ID range is 0..101
-    tag = 'm%05d' % (opts.tag_base + index) + ('r' if retry else '')
+def run_end(start, duration, kill_wall=None):
+    """Return the wall time at which a run is stopped."""
+    # A kill is timed from an event of the run, the end from the launch; when start-up is
+    # slow the kill would land next to the end. The run therefore always stays up for
+    # POST_KILL_SEC after a kill, so the reaction to it can be recorded.
+    end = start + STARTUP_SEC + duration
+    return end if kill_wall is None else max(end, kill_wall + POST_KILL_SEC)
+
+
+def _run_case(case, index, opts, lock, attempt, domain):
+    if case.get('offline'):
+        ok, details, metrics = case['check']()
+        return dict(case_row(case), passed=bool(ok), details=details,
+                    failure_class='' if ok else 'application', **metrics)
+    tag = 'm%05d' % (opts.tag_base + index) + 'r' * (attempt - 1)
     label = case['scenario'] + ('-' + case['variant'] if case['variant'] else '') + '-' + tag
     cmd = ['ros2', 'launch', 'smart_hub', 'hub.launch.py', 'scenario:=' + case['scenario'],
            'seed:=%d' % case['seed'], 'dispatch_mode:=' + case['mode'],
@@ -434,29 +1085,28 @@ def _run_case(case, index, opts, lock, retry=False):
            'record:=' + ('true' if case['record'] else 'false')]
     if case['variant']:
         cmd.append('variant:=' + case['variant'])
-    env = dict(os.environ, ROS_DOMAIN_ID=str(domain), SMART_HUB_RUN_TAG=tag)
+    env = dict(os.environ, ROS_DOMAIN_ID=str(domain), SMART_HUB_RUN_TAG=tag,
+               SMART_HUB_COMMIT=opts.commit, SMART_HUB_DIRTY='1' if opts.dirty else '0')
+    for key, value in TRANSPORT_ENV.items():
+        env.setdefault(key, value)
     start = time.time()
     log = open(os.path.join(opts.out, 'logs', '%03d_%s.log' % (index, label)), 'w')
     proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT,
                             start_new_session=True)
+    killed, kill_wall, trigger_t = True, None, 0.0
     if case['kill']:
-        at, pattern = case['kill']
-        if isinstance(at, tuple):                 # (event, entity, reason, delay): event-based
-            event, entity, reason_has, delay = at
-            wait_for_event(opts.runs_dir, label, case['seed'], start, event, entity,
-                           reason_has, 60)
+        (event, entity, reason_has, delay), pattern = case['kill']
+        trigger_t = wait_for_event(opts.runs_dir, label, case['seed'], start, event, entity,
+                                   reason_has, 60)
+        if trigger_t is not None:
             time.sleep(delay)
-        else:
-            time.sleep(max(0.0, STARTUP_SEC + at))
-        pids = subprocess.run(['pgrep', '-g', str(proc.pid), '-f', 'lib/smart_hub/' + pattern],
-                              capture_output=True, text=True).stdout.split()
-        for pid in pids:
-            os.kill(int(pid), signal.SIGKILL)
-        kill_wall = time.time()
-        if not pids:
-            with lock:
-                print('WARNING: %s: no %s process to kill' % (label, pattern), flush=True)
-    time.sleep(max(0.0, start + STARTUP_SEC + case['duration'] - time.time()))
+            pids = subprocess.run(['pgrep', '-g', str(proc.pid), '-f',
+                                   'lib/smart_hub/' + pattern],
+                                  capture_output=True, text=True).stdout.split()
+            for pid in pids:
+                os.kill(int(pid), signal.SIGKILL)
+            kill_wall, killed = time.time(), bool(pids)
+    time.sleep(max(0.0, run_end(start, case['duration'], kill_wall) - time.time()))
     os.killpg(proc.pid, signal.SIGINT)
     try:
         proc.wait(timeout=20)
@@ -464,35 +1114,52 @@ def _run_case(case, index, opts, lock, retry=False):
         os.killpg(proc.pid, signal.SIGKILL)
     log.close()
     run_dir = newest_run(opts.runs_dir, label, case['seed'], start)
-    row = {'test': case['test'], 'scenario': case['scenario'], 'variant': case['variant'],
-           'seed': case['seed'], 'mode': case['mode'], 'run_id': os.path.basename(run_dir or '')}
+    row = dict(case_row(case), run_id=os.path.basename(run_dir or ''), passed=False,
+               failure_class='infrastructure')
     if not run_dir:
-        row.update(passed=False, details='no run record found')
-        return row
+        return dict(row, details='no run record found')
     events = load_events(run_dir)
     started = first(events, 'SCENARIO_STARTED', 'scenario_runner')
     missing = started['reason'].split('missing=')[-1] if started else 'all nodes'
-    if missing and not retry:
-        row.update(passed=False, details='startup incomplete', startup_missing=missing)
-        return row
+    if missing:
+        return dict(row, details='startup gate incomplete, missing=%s' % missing)
+    if trigger_t is None:
+        return dict(row, failure_class='application',
+                    details='kill trigger %s not observed in 60 s' % case['kill'][0][0])
+    if not killed:
+        return dict(row, details='no %s process to kill' % case['kill'][1])
     time.sleep(1.0)                       # let metrics_logger write its final summary
-    with open(os.path.join(run_dir, 'summary.json')) as f:
-        summary = json.load(f)
+    try:
+        with open(os.path.join(run_dir, 'summary.json')) as f:
+            summary = add_occupancy_causes(json.load(f), run_dir)
+    except (OSError, ValueError) as exc:
+        return dict(row, details='no readable summary.json: %r' % exc)
+    graph = graph_problems(summary, exempt=(case['kill'][1],) if case['kill'] else ())
+    if graph:
+        return dict(row, details='graph audit: ' + '; '.join(graph))
     kwargs = {}
-    if case['kill'] and 'kill_t' in inspect.signature(case['check']).parameters:
-        # Map the wall-clock kill onto the run's event clock (t of metrics_logger).
+    if case['kill']:
+        # Map the wall-clock kill onto the run's event clock (t of metrics_logger) and keep
+        # it with the run record, so the case can be evaluated again later.
         offset = os.path.getmtime(os.path.join(run_dir, 'events.csv')) - \
             (events[-1]['t'] if events else 0)
-        kwargs['kill_t'] = kill_wall - offset
+        kill_t = kill_wall - offset
+        with open(os.path.join(run_dir, 'harness.json'), 'w') as f:
+            json.dump({'harness_version': HARNESS_VERSION, 'killed_node': case['kill'][1],
+                       'kill_trigger': list(case['kill'][0]), 'kill_wall_unix': kill_wall,
+                       'kill_t': round(kill_t, 3),
+                       'clock': 'kill_t = wall-clock kill time minus (mtime of events.csv '
+                                'minus t of its last event); resolution about 50 ms'}, f,
+                      indent=2)
+        row.update(killed_node=case['kill'][1], kill_t=round(kill_t, 3))
+        if 'kill_t' in inspect.signature(case['check']).parameters:
+            kwargs['kill_t'] = kill_t
     try:
         ok, details, metrics = case['check'](events, summary, **kwargs)
     except Exception as exc:          # a broken record is a failed run, not a crash
         ok, details, metrics = False, 'check error: %r' % exc, {}
-    row.update(passed=bool(ok), details=details, **metrics)
-    with lock:
-        print('%-8s %-9s %-26s seed %-3d %-10s %s  %s' % (
-            row['test'], case['scenario'], case['variant'] or '-', case['seed'], case['mode'],
-            'PASS' if ok else 'FAIL', details), flush=True)
+    row.update(passed=bool(ok), details=details, failure_class='' if ok else 'application',
+               **metrics)
     return row
 
 
@@ -502,6 +1169,7 @@ def recheck(opts):
         rows = list(csv.DictReader(f))
     cases = {(c['test'], c['scenario'], c['variant'], str(c['seed']), c['mode']): c
              for c in build_cases(opts.repeat) if not c['kill']}
+    keep = set(ATTEMPT_FIELDS) | {'attempts', 'first_attempt'}
     out = []
     for row in rows:
         row['passed'] = row['passed'] == 'True'
@@ -510,13 +1178,203 @@ def recheck(opts):
         run_dir = os.path.join(opts.runs_dir, row['run_id'])
         if case and row['run_id'] and os.path.isdir(run_dir):
             with open(os.path.join(run_dir, 'summary.json')) as f:
-                summary = json.load(f)
+                summary = add_occupancy_causes(json.load(f), run_dir)
             ok, details, metrics = case['check'](load_events(run_dir), summary)
-            row = {k: v for k, v in row.items() if k in (
-                'test', 'scenario', 'variant', 'seed', 'mode', 'run_id')}
-            row.update(passed=bool(ok), details=details, **metrics)
+            row = {k: v for k, v in row.items() if k in keep}
+            row.update(passed=bool(ok), failure_class='' if ok else 'application',
+                       details=details + ' (re-evaluated by harness %s)' % HARNESS_VERSION,
+                       **metrics)
         out.append(row)
     write_summary(out, opts)
+
+
+def fmt(value, spec='%.1f'):
+    return '-' if value in (None, '') else spec % float(value)
+
+
+def values_of(rows, key):
+    return [float(r[key]) for r in rows if r.get(key) not in (None, '')]
+
+
+def mean(values):
+    return sum(values) / len(values) if values else None
+
+
+DISPATCH_SCENARIOS = (('S2', 'rising demand: 2, 6, then 10 arrivals per minute'),
+                      ('S8', 'step surge: seven people at 60 s, then 6 per minute'))
+
+
+def dispatch_section(rows):
+    """Per scenario and policy: waits with sample counts and the paired per-seed difference."""
+    lines = []
+    for scenario, label in DISPATCH_SCENARIOS:
+        lines += dispatch_scenario_section(rows, scenario, label)
+    return lines
+
+
+def dispatch_scenario_section(rows, scenario, label):
+    by_mode = {mode: {str(r['seed']): r for r in rows if r['scenario'] == scenario and
+                      r['mode'] == mode and r.get('queue_wait_mean_s') not in (None, '')}
+               for mode in ('predictive', 'reactive')}
+    if not by_mode['predictive'] or not by_mode['reactive']:
+        return []
+    lines = ['', '## Predictive vs reactive dispatch (%s, %s; identical seeds)' % (
+             scenario, label), '',
+             'One episode = one seed. Boarded wait is measured at BOARDED; the all-passenger '
+             'wait also counts abandoned passengers and those still queued at the end of '
+             'the run (right-censored), so it is a lower bound. p50 / p95 are averages of '
+             'the per-episode percentiles.', '',
+             '| Policy | Episodes | Boarded passengers | Boarded wait mean / p50 / p95 (s) | '
+             'All-passenger wait, lower bound, mean / p95 (s) | Arrived | Abandoned | '
+             'Waiting at end | Completion rate |', '|---|---|---|---|---|---|---|---|---|']
+    for mode, runs in by_mode.items():
+        rs = list(runs.values())
+        lines.append('| %s | %d | %d | %s / %s / %s | %s / %s | %d | %d | %d | %s |' % (
+            mode, len(rs), sum(values_of(rs, 'queue_wait_n')),
+            fmt(mean(values_of(rs, 'queue_wait_mean_s'))),
+            fmt(mean(values_of(rs, 'queue_wait_p50_s'))),
+            fmt(mean(values_of(rs, 'queue_wait_p95_s'))),
+            fmt(mean(values_of(rs, 'wait_all_lower_bound_mean_s'))),
+            fmt(mean(values_of(rs, 'wait_all_lower_bound_p95_s'))),
+            sum(values_of(rs, 'arrived')), sum(values_of(rs, 'abandoned')),
+            sum(values_of(rs, 'waiting_at_end')),
+            fmt(mean(values_of(rs, 'completion_rate')), '%.3f')))
+    seeds = sorted(set(by_mode['predictive']) & set(by_mode['reactive']), key=int)
+    lines += ['', 'Paired difference per seed, delta = W_predictive - W_reactive of the '
+              'per-episode mean; 95 % interval from 10000 bootstrap resamples of whole '
+              'episodes (seeds), not of passengers:', '',
+              '| Wait | Seeds | Mean delta (s) | 95 % interval (s) | Seeds where predictive '
+              'is lower |', '|---|---|---|---|---|']
+    for name, key in (('boarded only', 'queue_wait_mean_s'),
+                      ('all passengers (lower bound)', 'wait_all_lower_bound_mean_s')):
+        deltas = [float(by_mode['predictive'][s][key]) - float(by_mode['reactive'][s][key])
+                  for s in seeds if by_mode['predictive'][s].get(key) not in (None, '') and
+                  by_mode['reactive'][s].get(key) not in (None, '')]
+        if not deltas:
+            continue
+        b = paired_bootstrap(deltas)
+        lines.append('| %s | %d | %+.1f | %+.1f .. %+.1f | %d of %d |' % (
+            name, b['n'], b['mean'], b['ci95_low'], b['ci95_high'],
+            sum(d < 0 for d in deltas), len(deltas)))
+        if len(deltas) >= 20:                 # second half: the confirmation seeds
+            half = deltas[len(deltas) // 2:]
+            c = paired_bootstrap(half)
+            lines.append('| %s, seeds %s-%s only | %d | %+.1f | %+.1f .. %+.1f | %d of %d |' % (
+                name, seeds[len(deltas) // 2], seeds[-1], c['n'], c['mean'], c['ci95_low'],
+                c['ci95_high'], sum(d < 0 for d in half), len(half)))
+    lines += lead_section(by_mode, seeds)
+    lines += ['', 'Per-seed delta of the boarded wait (s): ' + ', '.join(
+        'seed %s %+.1f' % (s, float(by_mode['predictive'][s]['queue_wait_mean_s']) -
+                           float(by_mode['reactive'][s]['queue_wait_mean_s'])) for s in seeds)]
+    return lines
+
+
+LEAD_TIE_SEC = 1.0         # first dispatches closer than this count as simultaneous
+
+
+def lead_section(by_mode, seeds):
+    """
+    Conditions under which each policy wins, grouped by the forecast's lead.
+
+    Lead = first dispatch of the reactive run - first dispatch of the predictive run on the
+    same seed. Seeds are grouped as forecast earlier / simultaneous / forecast later, and the
+    all-passenger wait difference is reported per group. Matching arrival attempts per pair
+    (same_arrivals) show that both policies saw the same passengers (common random numbers).
+    """
+    key = 'wait_all_lower_bound_mean_s'
+    pairs = []
+    for s in seeds:
+        p, r = by_mode['predictive'][s], by_mode['reactive'][s]
+        if p.get('first_dispatch_s') in (None, '') or r.get('first_dispatch_s') in (None, ''):
+            continue
+        pairs.append((float(r['first_dispatch_s']) - float(p['first_dispatch_s']),
+                      float(p[key]) - float(r[key]),
+                      same_arrivals(p.get('arrival_times'), r.get('arrival_times'))))
+    if not pairs:
+        return []
+    groups = (('forecast earlier (lead >= %.0f s)' % LEAD_TIE_SEC, lambda x: x >= LEAD_TIE_SEC),
+              ('simultaneous (|lead| < %.0f s)' % LEAD_TIE_SEC, lambda x: abs(x) < LEAD_TIE_SEC),
+              ('forecast later (lead <= -%.0f s)' % LEAD_TIE_SEC, lambda x: x <= -LEAD_TIE_SEC))
+    same = sum(match for _, _, match in pairs)
+    lines = ['', 'Conditions: seeds grouped by the lead of the first dispatch (reactive minus '
+             'predictive time). Identical arrival attempts (entered or balked, all within '
+             '%.2f s) in %d of %d pairs:' % (ARRIVAL_MATCH_SEC, same, len(pairs)), '',
+             '| Group | Seeds | Median lead (s) | Mean all-passenger delta (s) | '
+             'Predictive lower |', '|---|---|---|---|---|']
+    for name, test in groups:
+        g = [(lead, d) for lead, d, _ in pairs if test(lead)]
+        lines.append('| %s | %d | %s | %s | %d |' % (
+            name, len(g), fmt(percentile([x for x, _ in g], 50)) if g else '-',
+            '%+.1f' % mean([d for _, d in g]) if g else '-', sum(d < 0 for _, d in g)))
+    return lines
+
+
+def stop_section(rows):
+    """Three stop times kept apart, each with its clock domain (21.1)."""
+    measures = (
+        ('Zero command after E-stop receipt (STOP_LATCHED)', 'stop_latency_ms', 'ms',
+         'supervisor monotonic clock'),
+        ('Measured standstill after E-stop receipt (STANDSTILL_MEASURED)', 'standstill_ms',
+         'ms', 'supervisor monotonic clock, at receipt of the first pose at standstill'),
+        ('Observer delay of that pose (receipt - stamp)', 'observer_delay_ms', 'ms',
+         'ROS clock'),
+        ('Measured standstill after REROUTE / NO_ROUTE (ROUTE_STOP_MEASURED)',
+         'route_stop_ms', 'ms', 'ROS stamps of the event and of 10 Hz ground truth'),
+        ('Zero output after a process kill (T17)', 'reaction_s', 's',
+         'harness wall clock mapped to the run event clock'),
+    )
+    lines = []
+    for name, key, unit, clock in measures:
+        v = sorted(values_of(rows, key))
+        if v:
+            lines.append('| %s | %d | %.2f / %.2f / %.2f %s | %s |' % (
+                name, len(v), v[0], percentile(v, 50), v[-1], unit, clock))
+    if not lines:
+        return []
+    return ['', '## Stop times', '',
+            'The 0.20 s requirement (16.3) applies to the zero command; standstill is the '
+            'first pose observation at rest after the same trigger and includes the '
+            'deceleration and the observation period. A killed process is detected by '
+            'command age only (0.5 s watchdog plus one 20 Hz cycle).', '',
+            '| Measure | Runs | min / median / max | Clock domain |', '|---|---|---|---|'
+            ] + lines
+
+
+def read_attempts(opts):
+    path = os.path.join(opts.out, 'attempts.csv')
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return list(csv.DictReader(f))
+
+
+def history_section(attempts):
+    """Every recorded matrix invocation, oldest first, with first-attempt totals."""
+    groups = {}
+    for a in attempts:
+        groups.setdefault((a['harness_version'], a['matrix_id'], a['commit']), []).append(a)
+    lines = ['', '## Attempt history (attempts.csv, append-only)', '',
+             '| Harness | Matrix ID | Commit | Attempts | Passed | Infrastructure failures | '
+             'Application failures | Not evaluated | Superseded |',
+             '|---|---|---|---|---|---|---|---|---|']
+    for (version, matrix, commit), rs in groups.items():
+        lines.append('| %s | %s | %s | %d | %d | %d | %d | %d | %d |' % (
+            version, matrix, commit[:12], len(rs), sum(r['passed'] == 'True' for r in rs),
+            sum(r['failure_class'] == 'infrastructure' for r in rs),
+            sum(r['failure_class'] == 'application' for r in rs),
+            sum(r['passed'] == '' for r in rs), sum(bool(r['superseded_by']) for r in rs)))
+    failed = [a for a in attempts if a['passed'] == 'False']
+    if failed:
+        lines += ['', 'Attempts that did not pass:', '',
+                  '| Attempt ID | Test | Scenario / variant | Seed | Class | Run | Superseded '
+                  'by | Details |', '|---|---|---|---|---|---|---|---|']
+        for a in failed:
+            lines.append('| %s | %s | %s | %s | %s | %s | %s | %s |' % (
+                a['attempt_id'], a['test'], a['scenario'] + (
+                    ' / ' + a['variant'] if a['variant'] else ''), a['seed'],
+                a['failure_class'], a['run_id'] or '-', a['superseded_by'] or '-',
+                a['details']))
+    return lines
 
 
 def write_summary(rows, opts):
@@ -525,38 +1383,92 @@ def write_summary(rows, opts):
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
         w.writerows(rows)
+    matrix = rows[0].get('matrix_id', '') if rows else ''
+    commit = rows[0].get('commit', '') if rows else ''
     lines = ['# Verification matrix (T01-T18)', '',
-             'Generated by `ros2 run smart_hub run_test_matrix`; one row per run, details '
-             'in results.csv and evidence/runs/<run_id>/.', '',
-             '| Test | Scenario | Variant | Mode | Runs | Passed | Details (last run) |',
-             '|------|----------|---------|------|------|--------|--------------------|']
+             'Generated by `ros2 run smart_hub run_test_matrix` (harness %s), matrix %s, '
+             'source commit %s. One row per case below; results.csv has the last attempt '
+             'of every case, attempts.csv every attempt ever launched, and '
+             'evidence/runs/<run_id>/ the run records. Launch environment: %s.' % (
+                 HARNESS_VERSION, matrix, commit,
+                 ', '.join('%s=%s' % (k, os.environ.get(k, v))
+                           for k, v in TRANSPORT_ENV.items())),
+             '']
+    if getattr(opts, 'recheck', False):
+        lines += ['The runs were launched by the harness version recorded for them in '
+                  'attempts.csv; the criteria of every case except the process kills were '
+                  're-evaluated on the recorded runs by harness %s. No run was repeated.' %
+                  HARNESS_VERSION, '']
+    lines += ['| Test | Scenario | Variant | Mode | Cases | Passed on first attempt | Passed '
+              '| Details (last case) |', '|---|---|---|---|---|---|---|---|']
     groups = {}
     for r in rows:
         groups.setdefault((r['test'], r['scenario'], r['variant'], r['mode']), []).append(r)
     for (test, sc, var, mode), rs in groups.items():
-        lines.append('| %s | %s | %s | %s | %d | %d/%d | %s |' % (
-            test, sc, var or '-', mode, len(rs), sum(r['passed'] for r in rs), len(rs),
-            rs[-1]['details']))
-    pred = [r['queue_wait_mean_s'] for r in rows if r['scenario'] == 'S8' and
-            r['mode'] == 'predictive' and r.get('queue_wait_mean_s') is not None]
-    reac = [r['queue_wait_mean_s'] for r in rows if r['scenario'] == 'S8' and
-            r['mode'] == 'reactive' and r.get('queue_wait_mean_s') is not None]
-    if pred and reac:
-        lines += ['', '## Predictive vs reactive dispatch (S8, identical seeds)', '',
-                  '| Policy | Runs | Mean queue wait (s) |', '|---|---|---|',
-                  '| predictive | %d | %.1f |' % (len(pred), sum(pred) / len(pred)),
-                  '| reactive | %d | %.1f |' % (len(reac), sum(reac) / len(reac))]
-    passed = sum(r['passed'] for r in rows)
-    lines += ['', '**Total: %d/%d runs passed.**' % (passed, len(rows))]
+        lines.append('| %s | %s | %s | %s | %d | %d/%d | %d/%d | %s |' % (
+            test, sc, var or '-', mode, len(rs),
+            sum(r.get('first_attempt') == 'pass' for r in rs), len(rs),
+            sum(r['passed'] for r in rs), len(rs), rs[-1]['details']))
+    n = len(rows)
+    first_pass = sum(r.get('first_attempt') == 'pass' for r in rows)
+    lines += ['', '## Totals', '',
+              '- Cases: %d.' % n,
+              '- Passed on the first attempt: %d/%d.' % (first_pass, n),
+              '- First attempt failed for infrastructure reasons (run could not be judged): '
+              '%d; for application reasons (criterion failed on a complete run): %d.' % (
+                  sum(r.get('first_attempt') == 'infrastructure' for r in rows),
+                  sum(r.get('first_attempt') == 'application' for r in rows)),
+              '- Passed after the single permitted re-run of an infrastructure failure '
+              '(eventual success): %d/%d.' % (sum(r['passed'] for r in rows), n),
+              '- A run that fails the graph audit below is an infrastructure failure.']
+    lines += rate_section(rows, opts.runs_dir) + dispatch_section(rows) + stop_section(rows)
+    lines += history_section(read_attempts(opts))
+    lines += ['', '## Notes', '',
+              '- T03 and T11 are offline cases of this matrix (no launch, scenario OFFLINE): '
+              'T03 regenerates the 30 unseen demand episodes (6 test + 24 further) and '
+              'compares the installed model with persistence per episode; T11 runs the '
+              'planner against the independent oracle on 20 seeded edge states. T11 / T12 '
+              'are also checked live in S6.',
+              '- Crossing criteria use the strict ground-truth measures of metrics_logger '
+              '(no grace interval): contact, token overlap, robot / bus together with '
+              'another robot / bus or a car in C, and entry without the grant or onto a '
+              'pedestrian must be zero; a pedestrian stepping into a granted crossing must '
+              'be answered by a measured standstill within %d ms.' % PEDESTRIAN_RESPONSE_MS,
+              '- Every robot / bus + pedestrian episode in C is classified from the raw trace '
+              '(crossing_occupancy.csv): a pedestrian intrusion when the pedestrian appeared '
+              'in a crossing that the robot / bus already owned and occupied (the 80-85 s '
+              'stimulus of S8, assignment 15.1: "existing movement stops safely as needed"), '
+              'otherwise hub-caused. Hub-caused episodes must be zero; intrusions stay in the '
+              'strict-occupancy count and are judged by the measured response.',
+              '- A REROUTE / NO_ROUTE must be followed by a measured standstill within '
+              '%d ms (declared budget; ground truth is sampled at 10 Hz).' % ROUTE_STOP_MS]
     with open(os.path.join(opts.out, 'summary.md'), 'w') as f:
         f.write('\n'.join(lines) + '\n')
-    print('\n'.join(lines[-1:]))
+    print('first attempt %d/%d, eventual %d/%d' % (
+        first_pass, n, sum(r['passed'] for r in rows), n))
+
+
+def source_commit(given):
+    """Return (commit, dirty) of the tree under test: --commit, the environment, or git."""
+    if given:
+        return given, False
+    if os.environ.get('SMART_HUB_COMMIT'):
+        return os.environ['SMART_HUB_COMMIT'], os.environ.get('SMART_HUB_DIRTY', '') == '1'
+    try:
+        commit = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True,
+                                timeout=5).stdout.strip()
+        dirty = subprocess.run(['git', 'status', '--porcelain', '--untracked-files=no'],
+                               capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return 'unknown', False
+    return commit or 'unknown', bool(dirty)
 
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--out', default=os.path.join('evidence', 'test_matrix'))
-    parser.add_argument('--runs-dir', default=os.path.join('evidence', 'runs'))
+    parser.add_argument('--runs-dir', default=os.path.join('evidence', 'runs'),
+                        help='where metrics_logger writes (its output_dir parameter)')
     parser.add_argument('--parallel', type=int, default=4)
     parser.add_argument('--repeat', type=int, default=10)
     parser.add_argument('--cases', default='', help='regex on test id, e.g. "T13|T05"')
@@ -564,17 +1476,23 @@ def main(args=None):
     parser.add_argument('--ui-port-base', type=int, default=9000)
     parser.add_argument('--tag-base', type=int, default=int(time.time()) % 900 * 100,
                         help='run tags are unique per invocation')
+    parser.add_argument('--commit', default='',
+                        help='source commit of an installed copy without a git checkout')
     parser.add_argument('--recheck', action='store_true',
                         help='re-evaluate criteria on the recorded runs in <out>/results.csv')
     opts, _ = parser.parse_known_args(args)
     if opts.recheck:
         recheck(opts)
         return
+    opts.commit, opts.dirty = source_commit(opts.commit)
+    opts.commit_label = opts.commit + ('+dirty' if opts.dirty else '')
+    opts.matrix_id = time.strftime('M%Y%m%d-%H%M%S', time.gmtime())
     os.makedirs(os.path.join(opts.out, 'logs'), exist_ok=True)
     cases = [c for c in build_cases(opts.repeat) if re.search(opts.cases, c['test'])]
     # Longest first keeps the pool busy until the end.
     order = sorted(range(len(cases)), key=lambda i: -cases[i]['duration'])
     lock = threading.Lock()
+    opts.domains = DomainPool(opts.domain_base)
     with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
         futures = {i: pool.submit(run_case, cases[i], i, opts, lock) for i in order}
         rows = [futures[i].result() for i in sorted(futures)]

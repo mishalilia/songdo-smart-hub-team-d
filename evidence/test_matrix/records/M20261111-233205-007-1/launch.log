@@ -1,0 +1,213 @@
+[INFO] [launch]: All log files can be found below /tmp/.ros/log/2026-11-12-00-26-14-214804-f81a51fc4ed1-14411
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [scenario_runner-1]: process started with pid [14414]
+[INFO] [passenger_detector-2]: process started with pid [14415]
+[INFO] [demand_predictor-3]: process started with pid [14416]
+[INFO] [bus_manager-4]: process started with pid [14417]
+[INFO] [parking_manager-5]: process started with pid [14418]
+[INFO] [traffic_monitor-6]: process started with pid [14419]
+[INFO] [route_planner-7]: process started with pid [14420]
+[INFO] [robot_manager-8]: process started with pid [14421]
+[INFO] [hub_coordinator-9]: process started with pid [14422]
+[INFO] [safety_supervisor-10]: process started with pid [14423]
+[INFO] [actuator_bridge-11]: process started with pid [14424]
+[INFO] [metrics_logger-12]: process started with pid [14425]
+[INFO] [dashboard_marker_publisher-13]: process started with pid [14426]
+[INFO] [hub_ui-14]: process started with pid [14427]
+[demand_predictor-3] [INFO] [1794443176.330539451] [demand_predictor]: Loaded demand model ridge-l1000-e30
+[actuator_bridge-11] [37;1m2026-11-12 00:26:16.766 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment fastrtps_136f4204f3267e70: No such file or directory[34;1m -> Function [36mSegment[m
+[actuator_bridge-11] [37;1m2026-11-12 00:26:16.769 [31;1m[[37;1mRTPS_MSG_OUT[31;1m Error] [37mNo such file or directory[34;1m -> Function [36minit[m
+[actuator_bridge-11] [37;1m2026-11-12 00:26:16.769 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[passenger_detector-2] [37;1m2026-11-12 00:26:16.807 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment fastrtps_3a4789b0504d8cce: No such file or directory[34;1m -> Function [36mSegment[m
+[passenger_detector-2] [37;1m2026-11-12 00:26:16.809 [31;1m[[37;1mRTPS_MSG_OUT[31;1m Error] [37mNo such file or directory[34;1m -> Function [36minit[m
+[passenger_detector-2] [37;1m2026-11-12 00:26:16.809 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[hub_ui-14] [37;1m2026-11-12 00:26:16.821 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment fastrtps_50390238d7ac3819: No such file or directory[34;1m -> Function [36mSegment[m
+[hub_ui-14] [37;1m2026-11-12 00:26:16.821 [31;1m[[37;1mRTPS_MSG_OUT[31;1m Error] [37mNo such file or directory[34;1m -> Function [36minit[m
+[hub_ui-14] [37;1m2026-11-12 00:26:16.821 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[dashboard_marker_publisher-13] [37;1m2026-11-12 00:26:16.888 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment fastrtps_0180e698010df4c2: No such file or directory[34;1m -> Function [36mSegment[m
+[dashboard_marker_publisher-13] [37;1m2026-11-12 00:26:16.894 [31;1m[[37;1mRTPS_MSG_OUT[31;1m Error] [37mNo such file or directory[34;1m -> Function [36minit[m
+[dashboard_marker_publisher-13] [37;1m2026-11-12 00:26:16.894 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[safety_supervisor-10] [37;1m2026-11-12 00:26:16.929 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment 84b8f2e36ab6fa32: boost::interprocess_exception::library_error[34;1m -> Function [36mcompute_per_allocation_extra_size[m
+[safety_supervisor-10] [37;1m2026-11-12 00:26:16.930 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create Shared Memory Manager for domain fastrtps: boost::interprocess_exception::library_error[34;1m -> Function [36mcreate[m
+[safety_supervisor-10] [37;1m2026-11-12 00:26:16.930 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[robot_manager-8] [37;1m2026-11-12 00:26:17.093 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment 2a062d0d77d9c11c: boost::interprocess_exception::library_error[34;1m -> Function [36mcompute_per_allocation_extra_size[m
+[robot_manager-8] [37;1m2026-11-12 00:26:17.094 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create Shared Memory Manager for domain fastrtps: boost::interprocess_exception::library_error[34;1m -> Function [36mcreate[m
+[robot_manager-8] [37;1m2026-11-12 00:26:17.094 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[bus_manager-4] [37;1m2026-11-12 00:26:17.121 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment f20bae9d2c8548b8: boost::interprocess_exception::library_error[34;1m -> Function [36mcompute_per_allocation_extra_size[m
+[bus_manager-4] [37;1m2026-11-12 00:26:17.124 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create Shared Memory Manager for domain fastrtps: boost::interprocess_exception::library_error[34;1m -> Function [36mcreate[m
+[bus_manager-4] [37;1m2026-11-12 00:26:17.124 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[hub_ui-14] [INFO] [1794443177.260353150] [hub_ui]: UI on http://localhost:9007  (dashboard: /dashboard)
+[metrics_logger-12] [37;1m2026-11-12 00:26:17.283 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment 21d8b9c108e8b0b4: boost::interprocess_exception::library_error[34;1m -> Function [36mcompute_per_allocation_extra_size[m
+[metrics_logger-12] [37;1m2026-11-12 00:26:17.283 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create Shared Memory Manager for domain fastrtps: boost::interprocess_exception::library_error[34;1m -> Function [36mcreate[m
+[metrics_logger-12] [37;1m2026-11-12 00:26:17.283 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[scenario_runner-1] [37;1m2026-11-12 00:26:17.418 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create segment 15392c339ff7b9ce: boost::interprocess_exception::library_error[34;1m -> Function [36mcompute_per_allocation_extra_size[m
+[scenario_runner-1] [37;1m2026-11-12 00:26:17.418 [31;1m[[37;1mRTPS_TRANSPORT_SHM[31;1m Error] [37mFailed to create Shared Memory Manager for domain fastrtps: boost::interprocess_exception::library_error[34;1m -> Function [36mcreate[m
+[scenario_runner-1] [37;1m2026-11-12 00:26:17.418 [31;1m[[37;1mRTPS_PARTICIPANT[31;1m Error] [37mUnable to Register SHM Transport. SHM Transport is not supported in the current platform.[34;1m -> Function [36mRTPSParticipantImpl[m
+[scenario_runner-1] [INFO] [1794443177.674963246] [scenario_runner]: Loaded S3 seed=6 run_id=S3-m12507-s6-20261112-002617
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [hub_ui-14]: sending signal 'SIGINT' to process[hub_ui-14]
+[INFO] [dashboard_marker_publisher-13]: sending signal 'SIGINT' to process[dashboard_marker_publisher-13]
+[INFO] [metrics_logger-12]: sending signal 'SIGINT' to process[metrics_logger-12]
+[INFO] [actuator_bridge-11]: sending signal 'SIGINT' to process[actuator_bridge-11]
+[INFO] [safety_supervisor-10]: sending signal 'SIGINT' to process[safety_supervisor-10]
+[INFO] [hub_coordinator-9]: sending signal 'SIGINT' to process[hub_coordinator-9]
+[INFO] [robot_manager-8]: sending signal 'SIGINT' to process[robot_manager-8]
+[INFO] [route_planner-7]: sending signal 'SIGINT' to process[route_planner-7]
+[INFO] [traffic_monitor-6]: sending signal 'SIGINT' to process[traffic_monitor-6]
+[INFO] [parking_manager-5]: sending signal 'SIGINT' to process[parking_manager-5]
+[INFO] [bus_manager-4]: sending signal 'SIGINT' to process[bus_manager-4]
+[INFO] [demand_predictor-3]: sending signal 'SIGINT' to process[demand_predictor-3]
+[INFO] [passenger_detector-2]: sending signal 'SIGINT' to process[passenger_detector-2]
+[INFO] [scenario_runner-1]: sending signal 'SIGINT' to process[scenario_runner-1]
+[hub_ui-14] Traceback (most recent call last):
+[hub_ui-14]   File "/ws/install/smart_hub/lib/smart_hub/hub_ui", line 33, in <module>
+[hub_ui-14]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'hub_ui')())
+[hub_ui-14]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[hub_ui-14]   File "/ws/build/smart_hub/smart_hub/hub_ui.py", line 490, in main
+[hub_ui-14]     node.destroy_node()
+[hub_ui-14]   File "/ws/build/smart_hub/smart_hub/hub_ui.py", line 479, in destroy_node
+[hub_ui-14]     super().destroy_node()
+[hub_ui-14]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1956, in destroy_node
+[hub_ui-14]     self.destroy_publisher(self._publishers[0])
+[hub_ui-14]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1836, in destroy_publisher
+[hub_ui-14]     publisher.destroy()
+[hub_ui-14]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/publisher.py", line 105, in destroy
+[hub_ui-14]     self.__publisher.destroy_when_not_in_use()
+[hub_ui-14] KeyboardInterrupt
+[dashboard_marker_publisher-13] Traceback (most recent call last):
+[dashboard_marker_publisher-13]   File "/ws/install/smart_hub/lib/smart_hub/dashboard_marker_publisher", line 33, in <module>
+[dashboard_marker_publisher-13]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'dashboard_marker_publisher')())
+[dashboard_marker_publisher-13]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[dashboard_marker_publisher-13]   File "/ws/build/smart_hub/smart_hub/dashboard_marker_publisher.py", line 300, in main
+[dashboard_marker_publisher-13]     node.destroy_node()
+[dashboard_marker_publisher-13]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1962, in destroy_node
+[dashboard_marker_publisher-13]     self.destroy_service(self._services[0])
+[dashboard_marker_publisher-13]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1886, in destroy_service
+[dashboard_marker_publisher-13]     service.destroy()
+[dashboard_marker_publisher-13]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/service.py", line 123, in destroy
+[dashboard_marker_publisher-13]     self.__service.destroy_when_not_in_use()
+[dashboard_marker_publisher-13] KeyboardInterrupt
+[metrics_logger-12] Traceback (most recent call last):
+[metrics_logger-12]   File "/ws/install/smart_hub/lib/smart_hub/metrics_logger", line 33, in <module>
+[metrics_logger-12]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'metrics_logger')())
+[metrics_logger-12]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[metrics_logger-12]   File "/ws/build/smart_hub/smart_hub/metrics_logger.py", line 520, in main
+[metrics_logger-12]     node.destroy_node()
+[metrics_logger-12]   File "/ws/build/smart_hub/smart_hub/metrics_logger.py", line 509, in destroy_node
+[metrics_logger-12]     super().destroy_node()
+[metrics_logger-12]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1958, in destroy_node
+[safety_supervisor-10] Traceback (most recent call last):
+[safety_supervisor-10]   File "/ws/install/smart_hub/lib/smart_hub/safety_supervisor", line 33, in <module>
+[safety_supervisor-10]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'safety_supervisor')())
+[safety_supervisor-10]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[safety_supervisor-10]   File "/ws/build/smart_hub/smart_hub/safety_supervisor.py", line 388, in main
+[safety_supervisor-10]     node.destroy_node()
+[safety_supervisor-10]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1962, in destroy_node
+[safety_supervisor-10]     self.destroy_service(self._services[0])
+[safety_supervisor-10]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1886, in destroy_service
+[safety_supervisor-10]     service.destroy()
+[safety_supervisor-10]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/service.py", line 123, in destroy
+[safety_supervisor-10]     self.__service.destroy_when_not_in_use()
+[safety_supervisor-10] KeyboardInterrupt
+[hub_coordinator-9] Traceback (most recent call last):
+[hub_coordinator-9]   File "/ws/install/smart_hub/lib/smart_hub/hub_coordinator", line 33, in <module>
+[hub_coordinator-9]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'hub_coordinator')())
+[hub_coordinator-9]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[hub_coordinator-9]   File "/ws/build/smart_hub/smart_hub/hub_coordinator.py", line 239, in main
+[hub_coordinator-9]     node.destroy_node()
+[hub_coordinator-9]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1962, in destroy_node
+[hub_coordinator-9]     self.destroy_service(self._services[0])
+[hub_coordinator-9]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1886, in destroy_service
+[hub_coordinator-9]     service.destroy()
+[hub_coordinator-9]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/service.py", line 123, in destroy
+[hub_coordinator-9]     self.__service.destroy_when_not_in_use()
+[hub_coordinator-9] KeyboardInterrupt
+[metrics_logger-12]     self.destroy_subscription(self._subscriptions[0])
+[metrics_logger-12]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1854, in destroy_subscription
+[metrics_logger-12]     subscription.destroy()
+[metrics_logger-12]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/subscription.py", line 101, in destroy
+[metrics_logger-12]     self.handle.destroy_when_not_in_use()
+[metrics_logger-12] KeyboardInterrupt
+[actuator_bridge-11] Traceback (most recent call last):
+[actuator_bridge-11]   File "/ws/install/smart_hub/lib/smart_hub/actuator_bridge", line 33, in <module>
+[actuator_bridge-11]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'actuator_bridge')())
+[actuator_bridge-11]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[actuator_bridge-11]   File "/ws/build/smart_hub/smart_hub/actuator_bridge.py", line 63, in main
+[actuator_bridge-11]     node.destroy_node()
+[actuator_bridge-11]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1968, in destroy_node
+[actuator_bridge-11]     self.__node.destroy_when_not_in_use()
+[actuator_bridge-11] KeyboardInterrupt
+[traffic_monitor-6] Traceback (most recent call last):
+[traffic_monitor-6]   File "/ws/install/smart_hub/lib/smart_hub/traffic_monitor", line 33, in <module>
+[traffic_monitor-6]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'traffic_monitor')())
+[traffic_monitor-6]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[traffic_monitor-6]   File "/ws/build/smart_hub/smart_hub/traffic_monitor.py", line 129, in main
+[traffic_monitor-6]     node.destroy_node()
+[traffic_monitor-6]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1962, in destroy_node
+[route_planner-7] Traceback (most recent call last):
+[route_planner-7]   File "/ws/install/smart_hub/lib/smart_hub/route_planner", line 33, in <module>
+[route_planner-7]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'route_planner')())
+[route_planner-7]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[route_planner-7]   File "/ws/build/smart_hub/smart_hub/route_planner.py", line 149, in main
+[route_planner-7]     node.destroy_node()
+[route_planner-7]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1962, in destroy_node
+[route_planner-7]     self.destroy_service(self._services[0])
+[route_planner-7]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1886, in destroy_service
+[route_planner-7]     service.destroy()
+[route_planner-7]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/service.py", line 123, in destroy
+[route_planner-7]     self.__service.destroy_when_not_in_use()
+[route_planner-7] KeyboardInterrupt
+[traffic_monitor-6]     self.destroy_service(self._services[0])
+[traffic_monitor-6]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1886, in destroy_service
+[traffic_monitor-6]     service.destroy()
+[traffic_monitor-6]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/service.py", line 123, in destroy
+[traffic_monitor-6]     self.__service.destroy_when_not_in_use()
+[traffic_monitor-6] KeyboardInterrupt
+[bus_manager-4] Exception ignored in: <module 'threading' from '/usr/lib/python3.12/threading.py'>
+[bus_manager-4] Traceback (most recent call last):
+[bus_manager-4]   File "/usr/lib/python3.12/threading.py", line 1592, in _shutdown
+[bus_manager-4]     atexit_call()
+[bus_manager-4]   File "/usr/lib/python3.12/concurrent/futures/thread.py", line 31, in _python_exit
+[bus_manager-4]     t.join()
+[bus_manager-4]   File "/usr/lib/python3.12/threading.py", line 1147, in join
+[bus_manager-4]     self._wait_for_tstate_lock()
+[bus_manager-4]   File "/usr/lib/python3.12/threading.py", line 1167, in _wait_for_tstate_lock
+[bus_manager-4]     if lock.acquire(block, timeout):
+[bus_manager-4]        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[bus_manager-4] KeyboardInterrupt: 
+[demand_predictor-3] Traceback (most recent call last):
+[demand_predictor-3]   File "/ws/install/smart_hub/lib/smart_hub/demand_predictor", line 33, in <module>
+[demand_predictor-3]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'demand_predictor')())
+[demand_predictor-3]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[demand_predictor-3]   File "/ws/build/smart_hub/smart_hub/demand_predictor.py", line 141, in main
+[demand_predictor-3]     node.destroy_node()
+[demand_predictor-3]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1968, in destroy_node
+[demand_predictor-3]     self.__node.destroy_when_not_in_use()
+[demand_predictor-3] KeyboardInterrupt
+[scenario_runner-1] Traceback (most recent call last):
+[scenario_runner-1]   File "/ws/install/smart_hub/lib/smart_hub/scenario_runner", line 33, in <module>
+[scenario_runner-1]     sys.exit(load_entry_point('smart-hub', 'console_scripts', 'scenario_runner')())
+[scenario_runner-1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[scenario_runner-1]   File "/ws/build/smart_hub/smart_hub/scenario_runner.py", line 774, in main
+[scenario_runner-1]     node.destroy_node()
+[scenario_runner-1]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1958, in destroy_node
+[scenario_runner-1]     self.destroy_subscription(self._subscriptions[0])
+[scenario_runner-1]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1854, in destroy_subscription
+[scenario_runner-1]     subscription.destroy()
+[scenario_runner-1]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/subscription.py", line 101, in destroy
+[scenario_runner-1]     self.handle.destroy_when_not_in_use()
+[scenario_runner-1] KeyboardInterrupt
+[ERROR] [parking_manager-5]: process has died [pid 14418, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/parking_manager --ros-args -r __node:=parking_manager --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_3zzjsce8'].
+[ERROR] [passenger_detector-2]: process has died [pid 14415, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/passenger_detector --ros-args -r __node:=passenger_detector --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_m1o_re_o'].
+[ERROR] [robot_manager-8]: process has died [pid 14421, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/robot_manager --ros-args -r __node:=robot_manager --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_szbirlb1'].
+[ERROR] [actuator_bridge-11]: process has died [pid 14424, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/actuator_bridge --ros-args -r __node:=actuator_bridge --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_tnrs73ky'].
+[ERROR] [safety_supervisor-10]: process has died [pid 14423, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/safety_supervisor --ros-args -r __node:=safety_supervisor --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_5v574naw'].
+[ERROR] [dashboard_marker_publisher-13]: process has died [pid 14426, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/dashboard_marker_publisher --ros-args -r __node:=dashboard_marker_publisher --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_7rvbzaan'].
+[ERROR] [route_planner-7]: process has died [pid 14420, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/route_planner --ros-args -r __node:=route_planner --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_t0jszcl0'].
+[ERROR] [traffic_monitor-6]: process has died [pid 14419, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/traffic_monitor --ros-args -r __node:=traffic_monitor --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_34ecg2ou'].
+[ERROR] [hub_coordinator-9]: process has died [pid 14422, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/hub_coordinator --ros-args -r __node:=hub_coordinator --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_n9jizdwe'].
+[ERROR] [demand_predictor-3]: process has died [pid 14416, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/demand_predictor --ros-args -r __node:=demand_predictor --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_bud8n5z9'].
+[ERROR] [metrics_logger-12]: process has died [pid 14425, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/metrics_logger --ros-args -r __node:=metrics_logger --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_6q214hxq'].
+[ERROR] [hub_ui-14]: process has died [pid 14427, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/hub_ui --ros-args -r __node:=hub_ui --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_gug8dcql'].
+[ERROR] [scenario_runner-1]: process has died [pid 14414, exit code -2, cmd '/ws/install/smart_hub/lib/smart_hub/scenario_runner --ros-args -r __node:=scenario_runner --params-file /ws/install/smart_hub/share/smart_hub/config/hub.yaml --params-file /tmp/launch_params_9fa9nccm'].
+[INFO] [bus_manager-4]: process has finished cleanly [pid 14417]

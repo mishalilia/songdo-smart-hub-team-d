@@ -25,6 +25,9 @@ hub_coordinator:
     dispatch_high: 6.0
     dispatch_low: 4.0
     dispatch_cooldown_sec: 30.0
+    dispatch_rearm_after_service: true
+    dispatch_observed_floor: true
+    dispatch_upper_quantile: 0.8         # uncertainty-aware dispatch (evidence/dispatch_plan.json)
     crossing_lease_sec: 2.0
 
 parking_manager:
@@ -42,6 +45,8 @@ route_planner:
   ros__parameters:
     replan_improvement_ratio: 0.15
     use_edge_states: true
+    edge_states_timeout_sec: 1.5      # receipt age and observation-stamp age
+    crossing_wait_sec: 4.0            # expected wait w_e while C is not free
 
 robot_manager:
   ros__parameters:
@@ -60,6 +65,7 @@ safety_supervisor:
     max_angular_rad_s: 0.8
     pose_timeout_sec: 1.0
     clearance_m: 0.20
+    lateral_clearance_m: 0.05
     reaction_time_sec: 0.10
     min_deceleration_mps2: 0.5
 
@@ -70,7 +76,7 @@ metrics_logger:
 hub_ui:
   ros__parameters:
     host: 0.0.0.0
-    port: 8080
+    # port: launch argument ui_port (default 8080). A value here would override it.
 
 scenario_runner:
   ros__parameters:

@@ -1,0 +1,27 @@
+# Author: Mikhail Li (12236295)
+# Whole-graph load sweep (graph_load_sweep): the full launch with growing background load.
+# Robot and bus follow scripted routes (load only, not mission evidence); the queue holds
+# six tracked people. Each variant adds static pedestrians outside Q and C and cars on the
+# vehicle ring; LOAD_SPAWNED events report how many the map could place.
+scenario_id: LOAD
+duration_sec: 75
+events:
+  - {t: 1.0,  type: clear_stop_request}            # startup latch -> ready (16.3)
+  - {t: 2.0,  type: agent_route, agent: robot1, route: [R, W, Cn, Cs, J, D]}
+  - {t: 3.0,  type: agent_route, agent: bus1, route: [A, N, Cn, B, U, E, J, Cs, A], loop: true}
+  - {t: 5.0,  type: spawn_queue_tracks, count: 6}
+  - {t: 45.0, type: agent_route, agent: robot1, route: [D, J, Cs, Cn, W, R]}
+variants:
+  idle: []
+  light:
+    - {t: 6.0, type: spawn_crowd, count: 25}
+    - {t: 6.0, type: spawn_random_cars, count: 5}
+  medium:
+    - {t: 6.0, type: spawn_crowd, count: 75}
+    - {t: 6.0, type: spawn_random_cars, count: 10}
+  heavy:
+    - {t: 6.0, type: spawn_crowd, count: 150}
+    - {t: 6.0, type: spawn_random_cars, count: 15}
+  saturated:
+    - {t: 6.0, type: spawn_crowd, count: 400}
+    - {t: 6.0, type: spawn_random_cars, count: 100}

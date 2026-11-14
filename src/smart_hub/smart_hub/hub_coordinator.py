@@ -8,6 +8,9 @@ Occupancy comes from /hub/queue (pedestrians in C) and /hub/vehicles (agent foot
 See assignment 7.1, 15.2, 18.4.
 Demand dispatch (9.3): dispatch_policy.DispatchPolicy on /hub/demand at 1 Hz requests one
 DockBus goal at a time; outcome events DISPATCH_REQUESTED / DISPATCH_RESULT.
+Every consumed state is gated on validity, local receipt age and observation-stamp age
+(freshness.Retained); a forecast must also pass dispatch_policy.forecast_problem, else it
+is treated as unavailable (FORECAST_REJECTED event, fallback rule).
 """
 import time
 
@@ -16,7 +19,8 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from smart_hub import hub_map
 from smart_hub.crossing_arbiter import CrossingArbiter
-from smart_hub.dispatch_policy import DispatchPolicy
+from smart_hub.dispatch_policy import DispatchPolicy, forecast_margin, forecast_problem
+from smart_hub.freshness import Retained, stamp_problem, stamp_sec
 from smart_hub.hub_events import ack_reset
 from smart_hub.params import check_parameters
 from smart_hub.qos import R10, R100, R1T
@@ -28,12 +32,8 @@ from smart_hub_interfaces.msg import (
 from smart_hub_interfaces.srv import RequestCrossing
 
 STALE_SEC = 1.0
-AGENT_RADIUS = {'robot': 0.20, 'bus': 0.30, 'car': 0.30}
-
-
-def footprint_in_c(x, y, radius):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - radius <= x <= xmax + radius and ymin - radius <= y <= ymax + radius
+AGENT_RADIUS = {k: hub_map.FOOTPRINT_RADIUS_M[k] for k in ('robot', 'bus', 'car')}
+footprint_in_c = hub_map.footprint_in_crossing      # one geometry for every node
 
 
 class HubCoordinator(Node):
@@ -46,21 +46,39 @@ class HubCoordinator(Node):
         self.declare_parameter('crossing_clear_sec', 2.0)
         self.declare_parameter('crossing_lease_sec', 2.0)
         self.declare_parameter('dispatch_mode', 'predictive')   # predictive | reactive
+        self.declare_parameter('dispatch_rearm_after_service', True)
+        self.declare_parameter('dispatch_observed_floor', True)
+        # Uncertainty-aware dispatch: trigger on the forecast plus this validation-residual
+        # quantile of the installed model (0 = point forecast); applied only while the
+        # forecast's model_id matches that model.
+        self.declare_parameter('dispatch_upper_quantile', 0.0)
+        self.declare_parameter('dispatch_model_path', '')      # '' = installed model
         check_parameters(self)
 
         self.arbiter = CrossingArbiter(
             clear_sec=self.get_parameter('crossing_clear_sec').value,
             lease_sec=self.get_parameter('crossing_lease_sec').value)
-        self.queue_state = None
-        self.queue_receipt = -1e9
+        self.queue = Retained(STALE_SEC)
+        self.forecast_stamp = None     # acquisition stamp of the last accepted forecast
+        self.forecast_rejected = ''
         self.occupants = set()
+        self.vehicles_unknown = True
         self.vehicles_receipt = -1e9
         self.run_id = ''
         self.last_state = None
         self.policy = DispatchPolicy(
             high=self.get_parameter('dispatch_high').value,
             low=self.get_parameter('dispatch_low').value,
-            cooldown_sec=self.get_parameter('dispatch_cooldown_sec').value)
+            cooldown_sec=self.get_parameter('dispatch_cooldown_sec').value,
+            rearm_after_service=self.get_parameter('dispatch_rearm_after_service').value,
+            observed_floor=self.get_parameter('dispatch_observed_floor').value)
+        self.margin_model, self.margin = forecast_margin(
+            self.get_parameter('dispatch_model_path').value,
+            self.get_parameter('dispatch_upper_quantile').value)
+        if self.margin_model:
+            self.get_logger().info('Dispatch margin %.2f (quantile %g of %s)' % (
+                self.margin, self.get_parameter('dispatch_upper_quantile').value,
+                self.margin_model))
         self.bus_state = (None, -1e9)
         self.dock_goal = None          # outstanding DockBus goal handle (or 'SENT')
 
@@ -91,36 +109,57 @@ class HubCoordinator(Node):
         msg.correlation_id = correlation_id
         self.events_pub.publish(msg)
 
+    def now(self):
+        return self.get_clock().now().nanoseconds / 1e9
+
     def on_event(self, msg):
         if msg.event in ('RESET', 'RUN_START'):
             self.run_id = msg.run_id
+            self.forecast_stamp = None
             self.arbiter = CrossingArbiter(
                 clear_sec=self.get_parameter('crossing_clear_sec').value,
                 lease_sec=self.get_parameter('crossing_lease_sec').value)
         ack_reset(self, self.events_pub, msg)
 
     def on_queue(self, msg):
-        self.queue_state = msg
-        self.queue_receipt = time.monotonic()
+        if msg.zone_id == 'Q':             # the only zone that feeds crossing and dispatch
+            self.queue.put(msg, time.monotonic())
 
     def on_vehicles(self, msg):
-        self.occupants = {v.vehicle_id for v in msg.vehicles
-                          if v.kind in AGENT_RADIUS and v.valid and
-                          footprint_in_c(v.pose.x, v.pose.y, AGENT_RADIUS[v.kind])}
+        now = self.now()
+        tracked = [v for v in msg.vehicles if v.kind in AGENT_RADIUS]
+        self.occupants = {v.vehicle_id for v in tracked
+                          if v.valid and footprint_in_c(v.pose.x, v.pose.y, AGENT_RADIUS[v.kind])}
+        # A record that is invalid or carries an old observation stamp (frozen source) says
+        # nothing about where that vehicle is now: occupancy of C is then unknown.
+        self.vehicles_unknown = any(
+            not v.valid or stamp_problem(stamp_sec(v.header.stamp), now, STALE_SEC)
+            for v in tracked)
         self.vehicles_receipt = time.monotonic()
 
     def on_demand(self, msg):
         now = time.monotonic()
-        q = self.queue_state
-        queue_valid = q is not None and q.valid and now - self.queue_receipt <= STALE_SEC
+        q = self.queue.get(self.now(), now)
+        queue_valid = q is not None
+        stamp = stamp_sec(msg.header.stamp)
+        problem = forecast_problem(msg.valid, msg.horizon_sec, msg.model_id, stamp,
+                                   self.now(), self.forecast_stamp)
+        if not problem:
+            self.forecast_stamp = stamp
+        if problem != self.forecast_rejected:      # transitions only
+            if problem not in ('', 'INVALID'):     # INVALID is the predictor's own report
+                self.event('demand_predictor', 'FORECAST_REJECTED', '%s model=%s stamp=%.3f' % (
+                    problem, msg.model_id, stamp))
+            self.forecast_rejected = problem
         bus, receipt = self.bus_state
         bus_available = bus is not None and now - receipt <= 2.0 and bus.state == 'IDLE'
         # Reactive mode ignores the forecast and dispatches on the observed queue only, so the
         # two policies can be compared on identical seeds (assignment 9.4, 15.3).
         predictive = self.get_parameter('dispatch_mode').value == 'predictive'
-        reason = self.policy.update(now, predictive and msg.valid, msg.predicted_count,
+        margin = self.margin if msg.model_id == self.margin_model else 0.0
+        reason = self.policy.update(now, predictive and not problem, msg.predicted_count,
                                     queue_valid, q.count if queue_valid else 0, bus_available,
-                                    self.dock_goal is not None)
+                                    self.dock_goal is not None, margin)
         if reason == 'FALLBACK' and not predictive:
             reason = 'REACTIVE'
         if reason:
@@ -154,6 +193,8 @@ class HubCoordinator(Node):
         self.dock_goal = None
         self.event('bus1', 'DISPATCH_RESULT', 'status=%d %s' % (res.status, res.result.reason),
                    goal_id)
+        if res.result.reason == 'DOCKED_AND_BOARDED' and self.policy.served():
+            self.event('hub_coordinator', 'ESCALATION_CLEARED', 'SERVED', goal_id)
 
     def on_bus_arrival(self, msg):
         self.bus_state = (msg, time.monotonic())
@@ -166,9 +207,9 @@ class HubCoordinator(Node):
 
     def observe(self):
         now = time.monotonic()
-        q = self.queue_state
-        queue_ok = q is not None and q.valid and now - self.queue_receipt <= STALE_SEC
-        vehicles_ok = now - self.vehicles_receipt <= STALE_SEC
+        q = self.queue.get(self.now(), now)
+        queue_ok = q is not None
+        vehicles_ok = now - self.vehicles_receipt <= STALE_SEC and not self.vehicles_unknown
         self.arbiter.observe(now, queue_ok and q.crossing_occupied,
                              queue_ok and vehicles_ok, self.occupants)
         return now

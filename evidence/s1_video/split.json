@@ -1,0 +1,23 @@
+{
+  "truth_sha256": "fb6f78b80d3f078902b51021043841ca5faf26fde5208ca1208684fd88f41e7a",
+  "rule": "blocked in time: the first 54 labelled frames are the development part (detector choice, thresholds, calibration of the counting rules); the last 54 are the test part, used once for the final comparison",
+  "frozen": "2026-11-12, before any detector or threshold change after the midterm review",
+  "development": {
+    "frames": 54,
+    "first_sec": 0.5,
+    "last_sec": 39.19,
+    "people": 116,
+    "occluded": 16,
+    "max_count": 5,
+    "until_sec": 39.19
+  },
+  "test": {
+    "frames": 54,
+    "first_sec": 39.92,
+    "last_sec": 78.61,
+    "people": 86,
+    "occluded": 6,
+    "max_count": 5,
+    "from_sec": 39.92
+  }
+}

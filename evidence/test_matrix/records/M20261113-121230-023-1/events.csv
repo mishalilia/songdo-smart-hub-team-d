@@ -1,0 +1,57 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.016,scenario_runner,RUN_START,seed=42,FAULTS-estop_after_crossing-m75023-s42-20261113-122441
+0.000,P1,SLOT_UNKNOWN,was FREE,
+0.004,P2,SLOT_UNKNOWN,was FREE,
+0.009,P3,SLOT_UNKNOWN,was FREE,
+0.037,scenario_runner,SCENARIO_STARTED,waited=5.5s missing=,FAULTS-estop_after_crossing-m75023-s42-20261113-122441
+0.087,A-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.094,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+0.087,A-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,B-Cn,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,B-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cn-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cn-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cn-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cs-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,D-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,E-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,E-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,P1-P2,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,P2-P3,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,P3-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,R-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.800,P1,SLOT_FREE,was UNKNOWN,
+0.803,P2,SLOT_FREE,was UNKNOWN,
+0.804,P3,SLOT_FREE,was UNKNOWN,
+1.002,safety_supervisor,STOP_CLEARED,scenario,scenario_runner
+1.019,safety_supervisor,CLEAR_STOP_REQUEST_OK,OK latency_ms=21.53,
+1.041,robot1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+1.042,bus1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+2.008,robot1,GOAL_ACCEPTED,escort,fault-01
+2.012,robot,ROUTE_COMPUTED,R->R OK path=R cost=0.000s excluded=- edges_age_ms=422 crossing_wait=0.0s latency_ms=0.52,
+2.022,scenario_runner,ESCORT_ACCEPTED,,9f92dd9792554df291fb7931cb098546
+2.051,robot1,ROUTE,TO_PICKUP R cost=0.0s gen=1,fault-01
+2.101,robot1,PICKUP_ARRIVED,waiting for /robot/confirm_ready,fault-01
+4.044,robot1,READY_CONFIRMED,,fault-01
+4.057,robot1,CONFIRM_READY_OK,READY_ACCEPTED latency_ms=14.71,
+4.103,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=17 crossing_wait=0.0s latency_ms=0.25,
+4.151,robot1,ROUTE,ESCORT R-W-Cn-Cs-J-D cost=31.4s gen=2,fault-01
+4.251,robot,ROUTE_COMPUTED,R->D OK path=R-W-Cn-Cs-J-D cost=31.429s excluded=- edges_age_ms=165 crossing_wait=0.0s latency_ms=0.18,
+12.302,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=215 crossing_wait=0.0s latency_ms=0.19,
+12.401,robot1,CROSSING_GRANTED,latency_ms=0.10,298fc60e81414a3b97b7f8eda8c90802
+12.449,crossing,CROSSING_OWNED,robot1,
+12.451,robot1,CROSSING_ACQUIRED,,298fc60e81414a3b97b7f8eda8c90802
+21.604,robot,ROUTE_COMPUTED,Cn->D OK path=Cn-Cs-J-D cost=20.000s excluded=- edges_age_ms=18 crossing_wait=0.0s latency_ms=0.17,
+29.751,robot,ROUTE_COMPUTED,Cs->D OK path=Cs-J-D cost=14.286s excluded=- edges_age_ms=165 crossing_wait=0.0s latency_ms=0.20,
+33.954,robot1,CROSSING_RELEASE_DENIED,NOT_CLEAR,
+34.001,robot1,CROSSING_RELEASE_DENIED,NOT_CLEAR,
+34.052,robot1,CROSSING_RELEASED,latency_ms=0.07,298fc60e81414a3b97b7f8eda8c90802
+34.102,robot1,CROSSING_RELEASED,,298fc60e81414a3b97b7f8eda8c90802
+34.148,crossing,CROSSING_FREE,,
+36.242,scenario_runner,POWER_CUT,ESTOP,
+36.245,scenario_runner,INJECT,estop,
+36.256,safety_supervisor,STOP_LATCHED,ESTOP latency_ms=0.62,
+36.301,robot1,GOAL_ABORT,SAFE_STOP,fault-01
+36.311,scenario_runner,ESCORT_RESULT,status=6 reason=SAFE_STOP,9f92dd9792554df291fb7931cb098546
+36.336,robot1,STANDSTILL_MEASURED,cause=ESTOP latency_ms=41.32 zero_cmd_ms=0.62 observer_delay_ms=1.47,
+36.386,bus1,STANDSTILL_MEASURED,cause=ESTOP latency_ms=90.12 zero_cmd_ms=0.62 observer_delay_ms=2.26,

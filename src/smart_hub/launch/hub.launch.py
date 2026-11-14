@@ -66,7 +66,8 @@ def generate_launch_description():
         elif name == 'actuator_bridge':
             extra = {'mode': mode}
         elif name == 'hub_ui':
-            extra = {'port': ParameterValue(LaunchConfiguration('ui_port'), value_type=int)}
+            extra = {'port': ParameterValue(LaunchConfiguration('ui_port'), value_type=int),
+                     'mode': mode}
         elif name == 'hub_coordinator':
             extra = {'dispatch_mode': LaunchConfiguration('dispatch_mode')}
         nodes.append(Node(

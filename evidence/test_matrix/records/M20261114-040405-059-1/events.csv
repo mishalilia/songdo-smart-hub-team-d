@@ -1,0 +1,8 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.002,scenario_runner,RUN_START,seed=2,S5_FREE-m24559-s2-20261114-084312
+-0.001,scenario_runner,SCENARIO_STARTED,waited=2.7s missing=,S5_FREE-m24559-s2-20261114-084312
+0.707,P1,SLOT_FREE,was UNKNOWN,
+0.708,P2,SLOT_FREE,was UNKNOWN,
+0.708,P3,SLOT_FREE,was UNKNOWN,
+59.949,scenario_runner,SCENARIO_COMPLETE,t=60.00,S5_FREE-m24559-s2-20261114-084312
+60.448,demand_predictor,PREDICTION_VALID,history=60/60 s input=OK,

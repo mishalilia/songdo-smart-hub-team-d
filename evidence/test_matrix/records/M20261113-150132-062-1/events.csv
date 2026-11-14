@@ -1,0 +1,27 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.004,scenario_runner,RUN_START,seed=5,S5_FREE-m09262-s5-20261113-193651
+-0.003,scenario_runner,SCENARIO_STARTED,waited=2.1s missing=,S5_FREE-m09262-s5-20261113-193651
+0.023,P1,SLOT_UNKNOWN,was FREE,
+0.024,P2,SLOT_UNKNOWN,was FREE,
+0.028,P3,SLOT_UNKNOWN,was FREE,
+0.087,A-Cs,EDGE_NORMAL,density=0.25 speed=0.35 n=1,
+0.087,A-N,EDGE_NORMAL,density=0.50 speed=0.35 n=1,
+0.087,B-Cn,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,B-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cn-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cn-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cn-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,Cs-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,D-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,E-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,E-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,P1-P2,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,P2-P3,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,P3-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.087,R-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.118,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+0.622,P1,SLOT_FREE,was UNKNOWN,
+0.629,P2,SLOT_FREE,was UNKNOWN,
+0.630,P3,SLOT_FREE,was UNKNOWN,
+59.936,scenario_runner,SCENARIO_COMPLETE,t=60.00,S5_FREE-m09262-s5-20261113-193651
+61.166,demand_predictor,PREDICTION_VALID,history=60/60 s input=OK,

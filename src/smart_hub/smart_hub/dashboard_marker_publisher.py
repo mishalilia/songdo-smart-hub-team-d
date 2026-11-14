@@ -7,12 +7,15 @@ crossing ownership, queue zone, parking state, agents and obstacle footprints, d
 paths of bus and robot, pedestrians, and a status text panel (queue, prediction, bus,
 crossing, safety). Subscribes to state topics only; it never publishes commands.
 """
+import time
+
 from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import Point, PoseArray
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from smart_hub import hub_map
+from smart_hub.freshness import Retained
 from smart_hub.params import check_parameters
 from smart_hub.qos import R10, R1T
 from smart_hub_interfaces.msg import (
@@ -62,10 +65,10 @@ class DashboardMarkerPublisher(Node):
         self.vehicles = None
         self.pedestrians = None
         self.edges = {}
-        self.crossing = None
-        self.parking = None
-        self.queue = None
-        self.demand = None
+        # Retained samples are shown only while fresh; otherwise the display says UNKNOWN.
+        self.retained = {'crossing': Retained(1.0), 'queue': Retained(1.0),
+                         'demand': Retained(3.0),
+                         'parking': Retained(2.0, check_valid=False)}
         self.bus = None
         self.safety = None
         self.trails = {'robot1': [], 'bus1': []}
@@ -97,16 +100,21 @@ class DashboardMarkerPublisher(Node):
         self.edges = {e.edge_id: e for e in msg.edges}
 
     def on_crossing(self, msg):
-        self.crossing = msg
+        self.retained['crossing'].put(msg, time.monotonic())
 
     def on_parking(self, msg):
-        self.parking = msg
+        self.retained['parking'].put(msg, time.monotonic())
 
     def on_queue(self, msg):
-        self.queue = msg
+        self.retained['queue'].put(msg, time.monotonic())
 
     def on_demand(self, msg):
-        self.demand = msg
+        self.retained['demand'].put(msg, time.monotonic())
+
+    def fresh(self, key):
+        """Return the retained message, or None when missing, invalid or stale."""
+        return self.retained[key].get(self.get_clock().now().nanoseconds / 1e9,
+                                      time.monotonic())
 
     def on_bus(self, msg):
         self.bus = msg
@@ -190,15 +198,15 @@ class DashboardMarkerPublisher(Node):
             m.scale.x, m.scale.y, m.scale.z = xmax - xmin, ymax - ymin, 0.01
             _rgba(m, colour, 0.25)
             out.append(m)
-        c = self.crossing
-        label = 'C: UNKNOWN' if c is None or not c.valid else \
+        c = self.fresh('crossing')
+        label = 'C: UNKNOWN' if c is None else \
             'C: %s %s%s' % (c.state, c.owner_id, ' PED' if c.pedestrian_present else '')
         out.append(self._text('zones', 2, stamp, 5.0, 0.9, label, 0.25))
         return out
 
     def _crossing_colour(self):
-        c = self.crossing
-        if c is None or not c.valid:
+        c = self.fresh('crossing')
+        if c is None:
             return DARK
         if c.pedestrian_present:
             return RED
@@ -206,7 +214,8 @@ class DashboardMarkerPublisher(Node):
 
     def parking_markers(self, stamp):
         out = []
-        states = {s.slot_id: s.state for s in self.parking.slots} if self.parking else {}
+        parking = self.fresh('parking')
+        states = {s.slot_id: s.state for s in parking.slots} if parking else {}
         for i, slot in enumerate(hub_map.PARKING_SLOTS):
             x, y = hub_map.NODES[slot]
             state = states.get(slot, 'UNKNOWN')
@@ -253,14 +262,13 @@ class DashboardMarkerPublisher(Node):
         return out
 
     def status_text(self):
-        q, d, b, s = self.queue, self.demand, self.bus, self.safety
+        q, d, b, s = self.fresh('queue'), self.fresh('demand'), self.bus, self.safety
         lines = [
-            'Queue: %s' % ('%d (conf %.2f)' % (q.count, q.confidence) if q and q.valid
-                           else 'UNKNOWN'),
+            'Queue: %s' % ('%d (conf %.2f)' % (q.count, q.confidence) if q else 'UNKNOWN'),
             'Demand +%ss: %s' % (
                 d.horizon_sec if d else 30,
                 '%.1f (baseline %.1f, %s)' % (d.predicted_count, d.baseline_count, d.model_id)
-                if d and d.valid else 'prediction unavailable'),
+                if d else 'prediction unavailable'),
             'Bus: %s' % ('%s ETA %s%s' % (
                 b.state, '%.0fs' % b.eta_sec if b.eta_valid else '-',
                 ' DOOR OPEN' if b.door_open else '') if b else '-'),

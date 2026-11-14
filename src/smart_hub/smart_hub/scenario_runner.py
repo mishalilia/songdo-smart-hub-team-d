@@ -43,6 +43,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from smart_hub import hub_map
+from smart_hub.freshness import Retained
 from smart_hub.params import check_parameters
 from smart_hub.qos import R1, R10, R100, R1T, SENSOR
 from smart_hub.sim_world import apply_variant, footprint_in_c, STEP_SEC, World
@@ -52,7 +53,8 @@ from smart_hub_interfaces.msg import (
     VehicleStateArray,
 )
 from smart_hub_interfaces.srv import (
-    ClearSafetyStop, ReleaseParking, RequestCrossing, ReserveParking, ResetScenario,
+    ClearSafetyStop, ComputeRoute, ReleaseParking, RequestCrossing, ReserveParking,
+    ResetScenario,
 )
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
@@ -61,6 +63,8 @@ import yaml
 
 PIXELS_PER_M = 10
 LINK_SETTLE_SEC = 2.0
+CROSSING_STALE_SEC = 1.0    # /crossing/state is published at 10 Hz
+PARKING_STALE_SEC = 2.0     # /parking/state is published at 2 Hz
 # Data flows that must be connected before the stimulus schedule starts (graph discovery
 # can take several seconds on a loaded machine).
 READY_RETRY_SEC = 1.0
@@ -144,11 +148,14 @@ class ScenarioRunner(Node):
                                  lambda m: self.world.device_request('door', m.data), R1)
         self.create_subscription(Bool, '/parking/barrier_request',
                                  lambda m: self.world.device_request('barrier', m.data), R1)
+        # Retained state drives LEDs and background cars only while fresh (assignment 5).
+        self.parking_state = Retained(PARKING_STALE_SEC, check_valid=False)
+        self.crossing_state = Retained(CROSSING_STALE_SEC)
         self.create_subscription(ParkingState, '/parking/state', self.on_parking, R1T)
         self.create_subscription(Bool, '/hub/estop', self.on_estop, R1T)
         self.create_subscription(
             CrossingState, '/crossing/state',
-            lambda m: setattr(self.world, 'crossing_owner', m.owner_id if m.valid else ''), R1T)
+            lambda m: self.crossing_state.put(m, time.monotonic()), R1T)
         self.create_subscription(String, '/sim/inject', self.on_inject, R10)
         self.create_service(ResetScenario, '/scenario/reset', self.on_reset,
                             callback_group=self.reset_group)
@@ -164,6 +171,7 @@ class ScenarioRunner(Node):
         self.crossing = {}        # agent id -> {'token', 'entered', 'renew_at'}
         self.crossing_busy = {}   # agent id -> monotonic time before which no new request
         self.clear_stop_client = self.create_client(ClearSafetyStop, '/safety/clear_stop')
+        self.route_client = self.create_client(ComputeRoute, '/route/compute')
         self.dock_client = ActionClient(self, DockBus, '/bus/dock')
         self.escort_client = ActionClient(self, EscortPassenger, '/robot/escort')
         self.goal_handles = {}
@@ -235,7 +243,17 @@ class ScenarioRunner(Node):
         self.world.command('bus1', msg.linear.x, msg.angular.z)
 
     def on_parking(self, msg):
-        self.world.set_slot_states({s.slot_id: s.state for s in msg.slots})
+        self.parking_state.put(msg, time.monotonic())
+
+    def apply_retained_state(self, w):
+        """Stale or invalid retained state is UNKNOWN: blinking LEDs, no crossing entry."""
+        now, monotonic = self.get_clock().now().nanoseconds / 1e9, time.monotonic()
+        parking = self.parking_state.get(now, monotonic)
+        states = {s.slot_id: s.state for s in parking.slots} if parking else {}
+        w.set_slot_states({slot: states.get(slot, 'UNKNOWN') for slot in w.leds})
+        crossing = self.crossing_state.get(now, monotonic)
+        w.crossing_owner = crossing.owner_id if crossing else ''
+        w.crossing_unknown = w.crossing_lock and crossing is None
 
     def on_estop(self, msg):
         if msg.data and not self.estop_input and not self.world.estop:
@@ -345,8 +363,9 @@ class ScenarioRunner(Node):
                 self.event('scenario_runner', 'RUN_START', 'seed=%d' % w.seed, self.run_id)
                 self.event('scenario_runner', 'SCENARIO_STARTED',
                            'waited=%.1fs missing=%s' % (waited, ','.join(missing)), self.run_id)
+        w.crossing_lock = self.crossing_client.service_is_ready()
+        self.apply_retained_state(w)
         if self.started:
-            w.crossing_lock = self.crossing_client.service_is_ready()
             w.step()
             if w.crossing_lock:
                 self._scripted_crossing(w)
@@ -606,6 +625,8 @@ class ScenarioRunner(Node):
             goal.destination_node = ev.get('destination', 'D')
             goal.max_duration_sec = float(ev.get('max_duration_sec', 240.0))
             self._send_goal(self.escort_client, goal, 'escort')
+        elif kind == 'route_request':
+            self._route_request(ev)
         elif kind == 'cancel_goal':
             handle = self.goal_handles.get(ev['target'])
             if handle is None:
@@ -614,6 +635,35 @@ class ScenarioRunner(Node):
                 handle.cancel_goal_async()
                 self.event('scenario_runner', 'CANCEL_REQUESTED', ev['target'],
                            _goal_id(handle))
+
+    def _route_request(self, ev):
+        """Call /route/compute on the live graph and log the whole reply (13.3)."""
+        label = ev.get('label', '')
+        req = ComputeRoute.Request()
+        req.start_node, req.goal_node = ev['start'], ev['goal']
+        req.agent_type = ev.get('agent', 'car')
+        req.excluded_edges = list(ev.get('excluded', []))
+        head = '%s->%s agent=%s' % (req.start_node, req.goal_node, req.agent_type)
+        if not self.route_client.service_is_ready():
+            self.event('scenario_runner', 'ROUTE_REPLY', head + ' unavailable', label)
+            return
+        sent = time.monotonic()
+
+        def done(f):
+            latency = (time.monotonic() - sent) * 1000.0
+            if f.exception() is not None:
+                self.event('scenario_runner', 'ROUTE_REPLY',
+                           '%s failed %s' % (head, f.exception()), label)
+                return
+            r = f.result()
+            self.event('scenario_runner', 'ROUTE_REPLY',
+                       '%s success=%s reason=%s path=%s waypoints=%d cost=%.6f '
+                       'latency_ms=%.2f' % (
+                           head, str(r.success).lower(), r.reason,
+                           '-'.join(r.node_ids) or '-', len(r.waypoints),
+                           r.estimated_cost_sec, latency), label)
+
+        self.route_client.call_async(req).add_done_callback(done)
 
     def _scripted_crossing(self, w):
         """ACQUIRE for scripted agents waiting at C, RENEW while inside, RELEASE once out."""

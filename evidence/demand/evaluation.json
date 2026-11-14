@@ -1,5 +1,5 @@
 {
-  "model_id": "ridge-l1000-e30",
+  "model_id": "ridge-l0.01-e30",
   "episodes": {
     "train": [
       1000,
@@ -39,31 +39,36 @@
     ]
   },
   "windows": {
-    "train": 5400,
-    "validation": 1800,
-    "test": 1800
+    "train": 4860,
+    "validation": 1620,
+    "test": 1620
   },
   "validation_mae_by_lambda": {
-    "0.01": 1.6688,
-    "0.1": 1.6687,
-    "1.0": 1.6681,
-    "10.0": 1.665,
-    "100.0": 1.661,
-    "1000.0": 1.6399,
-    "10000.0": 2.0393
+    "0.01": 1.7172,
+    "0.1": 1.7172,
+    "1.0": 1.7174,
+    "10.0": 1.7188,
+    "100.0": 1.7235,
+    "1000.0": 1.7473,
+    "10000.0": 2.2438
   },
-  "lambda": 1000.0,
+  "lambda": 0.01,
+  "validation_residual_quantiles": {
+    "0.5": -0.1675,
+    "0.8": 1.6593,
+    "0.9": 2.4353
+  },
   "test": {
-    "model_mae": 1.7451,
-    "model_rmse": 2.0626,
-    "persistence_mae": 2.0378,
-    "persistence_rmse": 2.5744,
+    "model_mae": 1.767,
+    "model_rmse": 2.1621,
+    "persistence_mae": 2.0747,
+    "persistence_rmse": 2.5504,
     "model_no_worse_than_persistence": true
   },
   "inference_ms": {
-    "p50": 0.004151836037635803,
-    "p95": 0.004502944648265839,
-    "feature_p95": 0.01343805342912674
+    "p50": 0.0043471809476614,
+    "p95": 0.005970010533928871,
+    "feature_p95": 0.020532868802547455
   },
   "features": [
     "q",
@@ -71,5 +76,304 @@
     "trend10",
     "arrivals30 (proxy)",
     "departures30 (proxy)"
-  ]
+  ],
+  "test_per_episode": [
+    {
+      "seed": 1024,
+      "windows": 270,
+      "model_mae": 1.4934,
+      "model_rmse": 1.7924,
+      "persistence_mae": 1.7667,
+      "persistence_rmse": 2.4183,
+      "delta_mae": -0.2733
+    },
+    {
+      "seed": 1025,
+      "windows": 270,
+      "model_mae": 2.0896,
+      "model_rmse": 2.5699,
+      "persistence_mae": 2.6593,
+      "persistence_rmse": 3.0123,
+      "delta_mae": -0.5697
+    },
+    {
+      "seed": 1026,
+      "windows": 270,
+      "model_mae": 1.1656,
+      "model_rmse": 1.4866,
+      "persistence_mae": 1.5667,
+      "persistence_rmse": 1.9408,
+      "delta_mae": -0.4011
+    },
+    {
+      "seed": 1027,
+      "windows": 270,
+      "model_mae": 2.2579,
+      "model_rmse": 2.5396,
+      "persistence_mae": 2.3852,
+      "persistence_rmse": 3.0185,
+      "delta_mae": -0.1273
+    },
+    {
+      "seed": 1028,
+      "windows": 270,
+      "model_mae": 2.2292,
+      "model_rmse": 2.5459,
+      "persistence_mae": 2.3333,
+      "persistence_rmse": 2.5107,
+      "delta_mae": -0.1041
+    },
+    {
+      "seed": 1029,
+      "windows": 270,
+      "model_mae": 1.3663,
+      "model_rmse": 1.7577,
+      "persistence_mae": 1.737,
+      "persistence_rmse": 2.2186,
+      "delta_mae": -0.3707
+    }
+  ],
+  "test_uncertainty": {
+    "episodes": 6,
+    "model_mae_mean": 1.767,
+    "persistence_mae_mean": 2.0747,
+    "delta_mae_mean": -0.3077,
+    "delta_mae_ci95": [
+      -0.436,
+      -0.1845
+    ],
+    "episodes_model_better": 6,
+    "resampling": "whole episodes, 10000 bootstrap resamples, seed 0"
+  },
+  "holdout_extra_per_episode": [
+    {
+      "seed": 1030,
+      "windows": 270,
+      "model_mae": 1.7311,
+      "model_rmse": 2.047,
+      "persistence_mae": 2.0074,
+      "persistence_rmse": 2.556,
+      "delta_mae": -0.2763
+    },
+    {
+      "seed": 1031,
+      "windows": 270,
+      "model_mae": 1.668,
+      "model_rmse": 1.8797,
+      "persistence_mae": 1.9926,
+      "persistence_rmse": 2.5633,
+      "delta_mae": -0.3246
+    },
+    {
+      "seed": 1032,
+      "windows": 270,
+      "model_mae": 1.9731,
+      "model_rmse": 2.3378,
+      "persistence_mae": 2.6889,
+      "persistence_rmse": 3.0405,
+      "delta_mae": -0.7158
+    },
+    {
+      "seed": 1033,
+      "windows": 270,
+      "model_mae": 1.8197,
+      "model_rmse": 2.2442,
+      "persistence_mae": 1.9148,
+      "persistence_rmse": 2.4713,
+      "delta_mae": -0.0951
+    },
+    {
+      "seed": 1034,
+      "windows": 270,
+      "model_mae": 1.7299,
+      "model_rmse": 2.0814,
+      "persistence_mae": 1.8778,
+      "persistence_rmse": 2.3262,
+      "delta_mae": -0.1479
+    },
+    {
+      "seed": 1035,
+      "windows": 270,
+      "model_mae": 1.4674,
+      "model_rmse": 1.9425,
+      "persistence_mae": 2.1,
+      "persistence_rmse": 2.8964,
+      "delta_mae": -0.6326
+    },
+    {
+      "seed": 1036,
+      "windows": 270,
+      "model_mae": 2.055,
+      "model_rmse": 2.4887,
+      "persistence_mae": 2.5111,
+      "persistence_rmse": 2.9565,
+      "delta_mae": -0.4561
+    },
+    {
+      "seed": 1037,
+      "windows": 270,
+      "model_mae": 2.0301,
+      "model_rmse": 2.4525,
+      "persistence_mae": 2.6519,
+      "persistence_rmse": 3.1447,
+      "delta_mae": -0.6218
+    },
+    {
+      "seed": 1038,
+      "windows": 270,
+      "model_mae": 1.8225,
+      "model_rmse": 2.1501,
+      "persistence_mae": 1.3296,
+      "persistence_rmse": 1.6409,
+      "delta_mae": 0.4929
+    },
+    {
+      "seed": 1039,
+      "windows": 270,
+      "model_mae": 1.914,
+      "model_rmse": 2.1875,
+      "persistence_mae": 2.5926,
+      "persistence_rmse": 2.9021,
+      "delta_mae": -0.6786
+    },
+    {
+      "seed": 1040,
+      "windows": 270,
+      "model_mae": 1.6899,
+      "model_rmse": 2.2249,
+      "persistence_mae": 2.3481,
+      "persistence_rmse": 2.7889,
+      "delta_mae": -0.6582
+    },
+    {
+      "seed": 1041,
+      "windows": 270,
+      "model_mae": 1.8305,
+      "model_rmse": 2.4411,
+      "persistence_mae": 1.9222,
+      "persistence_rmse": 2.7816,
+      "delta_mae": -0.0917
+    },
+    {
+      "seed": 1042,
+      "windows": 270,
+      "model_mae": 1.7293,
+      "model_rmse": 2.1514,
+      "persistence_mae": 2.0037,
+      "persistence_rmse": 2.8225,
+      "delta_mae": -0.2744
+    },
+    {
+      "seed": 1043,
+      "windows": 270,
+      "model_mae": 1.7813,
+      "model_rmse": 2.2001,
+      "persistence_mae": 2.2926,
+      "persistence_rmse": 2.7169,
+      "delta_mae": -0.5113
+    },
+    {
+      "seed": 1044,
+      "windows": 270,
+      "model_mae": 1.6481,
+      "model_rmse": 1.7897,
+      "persistence_mae": 1.9148,
+      "persistence_rmse": 2.3735,
+      "delta_mae": -0.2667
+    },
+    {
+      "seed": 1045,
+      "windows": 270,
+      "model_mae": 1.919,
+      "model_rmse": 2.1729,
+      "persistence_mae": 2.1481,
+      "persistence_rmse": 2.6218,
+      "delta_mae": -0.2291
+    },
+    {
+      "seed": 1046,
+      "windows": 270,
+      "model_mae": 1.6383,
+      "model_rmse": 1.8099,
+      "persistence_mae": 1.5111,
+      "persistence_rmse": 2.062,
+      "delta_mae": 0.1272
+    },
+    {
+      "seed": 1047,
+      "windows": 270,
+      "model_mae": 1.6221,
+      "model_rmse": 2.0549,
+      "persistence_mae": 1.2778,
+      "persistence_rmse": 1.7181,
+      "delta_mae": 0.3443
+    },
+    {
+      "seed": 1048,
+      "windows": 270,
+      "model_mae": 1.7178,
+      "model_rmse": 2.0215,
+      "persistence_mae": 2.0741,
+      "persistence_rmse": 2.6569,
+      "delta_mae": -0.3563
+    },
+    {
+      "seed": 1049,
+      "windows": 270,
+      "model_mae": 1.4721,
+      "model_rmse": 1.9226,
+      "persistence_mae": 1.7259,
+      "persistence_rmse": 2.1602,
+      "delta_mae": -0.2538
+    },
+    {
+      "seed": 1050,
+      "windows": 270,
+      "model_mae": 1.9627,
+      "model_rmse": 2.433,
+      "persistence_mae": 2.0519,
+      "persistence_rmse": 2.7379,
+      "delta_mae": -0.0892
+    },
+    {
+      "seed": 1051,
+      "windows": 270,
+      "model_mae": 1.0914,
+      "model_rmse": 1.3658,
+      "persistence_mae": 1.6074,
+      "persistence_rmse": 1.9795,
+      "delta_mae": -0.516
+    },
+    {
+      "seed": 1052,
+      "windows": 270,
+      "model_mae": 1.7788,
+      "model_rmse": 2.2578,
+      "persistence_mae": 1.9519,
+      "persistence_rmse": 2.5379,
+      "delta_mae": -0.1731
+    },
+    {
+      "seed": 1053,
+      "windows": 270,
+      "model_mae": 1.9694,
+      "model_rmse": 2.299,
+      "persistence_mae": 2.1037,
+      "persistence_rmse": 2.6597,
+      "delta_mae": -0.1343
+    }
+  ],
+  "holdout_uncertainty": {
+    "episodes": 30,
+    "model_mae_mean": 1.7554,
+    "persistence_mae_mean": 2.0349,
+    "delta_mae_mean": -0.2795,
+    "delta_mae_ci95": [
+      -0.3765,
+      -0.1762
+    ],
+    "episodes_model_better": 27,
+    "resampling": "whole episodes, 10000 bootstrap resamples, seed 0"
+  },
+  "note": "Windows of one episode overlap and are not independent trials: use the per-episode rows and the episode-level bootstrap interval for uncertainty. Windows start after the 60 s contiguous warm-up required online."
 }

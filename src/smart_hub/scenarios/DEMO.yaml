@@ -1,6 +1,8 @@
 # Author: Mikhail Li (12236295)
 # Midterm demonstration: robot and bus motion, boarding, IoT devices, faults, load.
-# Simulator-only (scripted routes); works without the mission / safety nodes.
+# Scripted routes move the robot and the bus (presentation only, not mission-controller
+# evidence); the launch starts the same 14 nodes as for S1-S9 and the scripted agents take
+# the crossing lock from hub_coordinator.
 scenario_id: DEMO
 duration_sec: 130
 initial_slots: {P1: OCCUPIED, P2: FREE, P3: FREE}

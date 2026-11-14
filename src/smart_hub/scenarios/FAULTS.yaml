@@ -2,6 +2,7 @@
 # T16-T18 fault injection during a robot escort (assignment 16).
 # Variants inject faults at different mission phases (16.3: each fault five times):
 # waiting for readiness, driving to the crossing, inside C, after C, near D.
+# pedestrian_in_crossing steps a pedestrian into C while the robot is inside it (15.1).
 # Node crashes (robot_manager, safety_supervisor,
 # route_planner) are injected by the test matrix runner killing the process.
 scenario_id: FAULTS
@@ -11,6 +12,8 @@ events:
   - {t: 2.0,  type: escort_request, request_id: fault-01, pickup: R, destination: D}
   - {t: 4.0,  type: confirm_ready}
 variants:
+  pedestrian_in_crossing:
+    - {t: 24.0, type: crossing_pedestrian, duration_sec: 5.0}
   parking_sensor_stale:
     - {t: 5.0,  type: disconnect_slot_sensor, slot: P2}
   estop_waiting:
