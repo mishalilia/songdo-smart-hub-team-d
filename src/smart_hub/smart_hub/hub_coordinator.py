@@ -19,7 +19,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from smart_hub import hub_map
 from smart_hub.crossing_arbiter import CrossingArbiter
-from smart_hub.dispatch_policy import DispatchPolicy, forecast_problem
+from smart_hub.dispatch_policy import DispatchPolicy, forecast_margin, forecast_problem
 from smart_hub.freshness import Retained, stamp_problem, stamp_sec
 from smart_hub.hub_events import ack_reset
 from smart_hub.params import check_parameters
@@ -48,6 +48,11 @@ class HubCoordinator(Node):
         self.declare_parameter('dispatch_mode', 'predictive')   # predictive | reactive
         self.declare_parameter('dispatch_rearm_after_service', True)
         self.declare_parameter('dispatch_observed_floor', True)
+        # Uncertainty-aware dispatch: trigger on the forecast plus this validation-residual
+        # quantile of the installed model (0 = point forecast); applied only while the
+        # forecast's model_id matches that model.
+        self.declare_parameter('dispatch_upper_quantile', 0.0)
+        self.declare_parameter('dispatch_model_path', '')      # '' = installed model
         check_parameters(self)
 
         self.arbiter = CrossingArbiter(
@@ -67,6 +72,13 @@ class HubCoordinator(Node):
             cooldown_sec=self.get_parameter('dispatch_cooldown_sec').value,
             rearm_after_service=self.get_parameter('dispatch_rearm_after_service').value,
             observed_floor=self.get_parameter('dispatch_observed_floor').value)
+        self.margin_model, self.margin = forecast_margin(
+            self.get_parameter('dispatch_model_path').value,
+            self.get_parameter('dispatch_upper_quantile').value)
+        if self.margin_model:
+            self.get_logger().info('Dispatch margin %.2f (quantile %g of %s)' % (
+                self.margin, self.get_parameter('dispatch_upper_quantile').value,
+                self.margin_model))
         self.bus_state = (None, -1e9)
         self.dock_goal = None          # outstanding DockBus goal handle (or 'SENT')
 
@@ -144,9 +156,10 @@ class HubCoordinator(Node):
         # Reactive mode ignores the forecast and dispatches on the observed queue only, so the
         # two policies can be compared on identical seeds (assignment 9.4, 15.3).
         predictive = self.get_parameter('dispatch_mode').value == 'predictive'
+        margin = self.margin if msg.model_id == self.margin_model else 0.0
         reason = self.policy.update(now, predictive and not problem, msg.predicted_count,
                                     queue_valid, q.count if queue_valid else 0, bus_available,
-                                    self.dock_goal is not None)
+                                    self.dock_goal is not None, margin)
         if reason == 'FALLBACK' and not predictive:
             reason = 'REACTIVE'
         if reason:

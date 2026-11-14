@@ -25,8 +25,8 @@ import random
 import time
 
 from smart_hub.demand_model import (
-    features, HISTORY_SEC, mae, paired_bootstrap, RidgeModel, rmse, split_episodes,
-    WARMUP_SEC, windows,
+    features, HISTORY_SEC, mae, paired_bootstrap, residual_quantiles, RidgeModel, rmse,
+    split_episodes, WARMUP_SEC, windows,
 )
 from smart_hub.metrics import percentile
 from smart_hub.sim_world import STEP_SEC, World
@@ -124,6 +124,8 @@ def main(args=None):
         scores[lam] = mae([m.predict(x) for x in Xva], yva)
     best = min(scores, key=scores.get)
     model = RidgeModel.fit(Xtr, ytr, best, model_id='ridge-l%g-e%d' % (best, opts.episodes))
+    # Forecast uncertainty for decision-aware dispatch, calibrated on validation only.
+    model.residual_quantiles = residual_quantiles(model, Xva, yva)
 
     latencies = []
     preds = []
@@ -144,6 +146,7 @@ def main(args=None):
         'windows': {'train': len(ytr), 'validation': len(yva), 'test': len(yte)},
         'validation_mae_by_lambda': {str(k): round(v, 4) for k, v in scores.items()},
         'lambda': best,
+        'validation_residual_quantiles': model.residual_quantiles,
         'test': {
             'model_mae': round(mae(preds, yte), 4), 'model_rmse': round(rmse(preds, yte), 4),
             'persistence_mae': round(mae(bte, yte), 4),

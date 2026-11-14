@@ -27,6 +27,7 @@ hub_coordinator:
     dispatch_cooldown_sec: 30.0
     dispatch_rearm_after_service: true
     dispatch_observed_floor: true
+    dispatch_upper_quantile: 0.8         # uncertainty-aware dispatch (evidence/dispatch_plan.json)
     crossing_lease_sec: 2.0
 
 parking_manager:

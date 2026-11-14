@@ -133,13 +133,15 @@ def split_episodes(n, train=0.6, val=0.2):
 
 class RidgeModel:
 
-    def __init__(self, weights, bias, mean, std, lam, model_id):
+    def __init__(self, weights, bias, mean, std, lam, model_id, residual_quantiles=None):
         self.weights = np.asarray(weights, dtype=float)
         self.bias = float(bias)
         self.mean = np.asarray(mean, dtype=float)
         self.std = np.asarray(std, dtype=float)
         self.lam = lam
         self.model_id = model_id
+        # Quantiles of (truth - forecast) on the validation episodes, e.g. {'0.8': 1.66}.
+        self.residual_quantiles = dict(residual_quantiles or {})
 
     @classmethod
     def fit(cls, X, y, lam, model_id='ridge'):
@@ -161,17 +163,28 @@ class RidgeModel:
         return {'model_id': self.model_id, 'type': 'ridge', 'features': FEATURES,
                 'horizon_sec': HORIZON_SEC, 'lambda': self.lam,
                 'weights': self.weights.tolist(), 'bias': self.bias,
-                'mean': self.mean.tolist(), 'std': self.std.tolist()}
+                'mean': self.mean.tolist(), 'std': self.std.tolist(),
+                'validation_residual_quantiles': self.residual_quantiles}
 
     @classmethod
     def load(cls, path):
         with open(path) as f:
             d = json.load(f)
-        return cls(d['weights'], d['bias'], d['mean'], d['std'], d['lambda'], d['model_id'])
+        return cls(d['weights'], d['bias'], d['mean'], d['std'], d['lambda'], d['model_id'],
+                   d.get('validation_residual_quantiles'))
 
     def save(self, path):
         with open(path, 'w') as f:
             json.dump(self.to_json(), f, indent=2)
+
+
+RESIDUAL_QUANTILES = (0.5, 0.8, 0.9)
+
+
+def residual_quantiles(model, X, y, levels=RESIDUAL_QUANTILES):
+    """Nearest-rank quantiles of truth - forecast (calibration on validation windows)."""
+    r = sorted(float(t) - model.predict(x) for x, t in zip(X, y))
+    return {'%g' % p: round(r[int(p * (len(r) - 1))], 4) for p in levels}
 
 
 def mae(pred, truth):

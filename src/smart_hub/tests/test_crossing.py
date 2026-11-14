@@ -1,7 +1,8 @@
 # Author: Komronbek Tohirov (12235649)
 """Crossing mutex (7.1, 18.4) and demand dispatch (9.3, T04) tests."""
 from smart_hub.crossing_arbiter import CrossingArbiter, FREE, HOLD, OWNED
-from smart_hub.dispatch_policy import DispatchPolicy, forecast_problem
+from smart_hub.demand_model import RidgeModel
+from smart_hub.dispatch_policy import DispatchPolicy, forecast_margin, forecast_problem
 
 
 def test_crossing_single_owner_and_pedestrian_priority():
@@ -78,6 +79,34 @@ def test_observed_floor_never_lets_the_forecast_delay_a_dispatch():
     early = DispatchPolicy(high=6, low=4, cooldown_sec=30, observed_floor=True)
     assert [early.update(t, True, 7.0, True, 3, True, False) for t in range(3)][-1] == \
         'PREDICTED'
+
+
+def test_forecast_margin_dispatches_on_the_upper_bound_only():
+    point = DispatchPolicy(high=6, low=4, cooldown_sec=30, observed_floor=True)
+    upper = DispatchPolicy(high=6, low=4, cooldown_sec=30, observed_floor=True)
+    # forecast 4.8 with five waiting: the point forecast waits, forecast + 1.66 crosses 6
+    assert [point.update(t, True, 4.8, True, 5, True, False) for t in range(3)] == [None] * 3
+    assert [upper.update(t, True, 4.8, True, 5, True, False, 1.66)
+            for t in range(3)][-1] == 'PREDICTED'
+    # an invalid forecast ignores the margin and falls back to the observed queue
+    fb = DispatchPolicy(high=6, low=4, cooldown_sec=30)
+    assert fb.update(0, False, 4.8, True, 5, True, False, 1.66) is None
+    # escalation still clears on the point forecast (five values below 4)
+    clear = DispatchPolicy(high=6, low=4, cooldown_sec=0, consecutive=1)
+    assert clear.update(0, True, 5.0, True, 0, True, False, 1.66) == 'PREDICTED'
+    for t in range(1, 6):
+        clear.update(t, True, 3.0, True, 0, True, False, 1.66)
+    assert not clear.escalated
+
+
+def test_forecast_margin_comes_from_the_installed_models_validation_residuals(tmp_path):
+    model = RidgeModel([1.0], 0.0, [0.0], [1.0], 0.01, 'ridge-test', {'0.8': 1.66})
+    path = str(tmp_path / 'model.json')
+    model.save(path)
+    assert forecast_margin(path, 0.8) == ('ridge-test', 1.66)
+    assert forecast_margin(path, 0.0) == ('', 0.0)            # disabled
+    assert forecast_margin(path, 0.95) == ('', 0.0)           # quantile not calibrated
+    assert forecast_margin(str(tmp_path / 'missing.json'), 0.8) == ('', 0.0)
 
 
 def test_dispatch_fallback_and_invalid_inputs():

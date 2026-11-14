@@ -3,8 +3,8 @@
 import math
 
 from smart_hub.demand_model import (
-    features, HISTORY_SEC, mae, paired_bootstrap, QueueHistory, RidgeModel, split_episodes,
-    WARMUP_SEC, windows,
+    features, HISTORY_SEC, mae, paired_bootstrap, QueueHistory, residual_quantiles, RidgeModel,
+    split_episodes, WARMUP_SEC, windows,
 )
 
 
@@ -110,3 +110,13 @@ def test_paired_bootstrap_resamples_whole_episodes():
     assert out['n'] == 6 and math.isclose(out['mean'], -4.0 / 6)
     assert out['ci95_low'] <= out['mean'] <= out['ci95_high'] < 0
     assert paired_bootstrap([]) == {'n': 0}
+
+
+def test_residual_quantiles_are_nearest_rank_and_saved_with_the_model(tmp_path):
+    model = RidgeModel([0.0], 0.0, [0.0], [1.0], 1.0, 'zero')     # always predicts 0
+    X, y = [[0.0]] * 11, list(range(11))                           # residuals 0..10
+    q = residual_quantiles(model, X, y)
+    assert q == {'0.5': 5.0, '0.8': 8.0, '0.9': 9.0}
+    model.residual_quantiles = q
+    model.save(str(tmp_path / 'm.json'))
+    assert RidgeModel.load(str(tmp_path / 'm.json')).residual_quantiles == q

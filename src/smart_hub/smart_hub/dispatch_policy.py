@@ -14,11 +14,19 @@ With rearm_after_service, a mission that ended with passengers boarded also clea
 escalated demand was served, and a queue that is still high has to be confirmed again by
 three new consecutive predictions (or the fallback rule) before the next request. Without
 it a queue that never falls below dispatch_low keeps the bus at one trip per episode.
+With a forecast margin (uncertainty-aware dispatch) the trigger compares the upper forecast
+bound, predicted + margin, with dispatch_high; the margin is a validation-residual quantile of
+the installed model. An MAE fit under-predicts a rising queue, so the point forecast crosses
+dispatch_high together with the observed queue and gives no lead; the upper bound does. The
+escalation is still cleared on the point forecast.
 
 A forecast counts as valid only after forecast_problem() accepted it: explicit validity,
 the expected source (30 s horizon, named model) and the age and order of its supporting
 acquisition stamp. Anything else is "prediction unavailable" and uses the fallback.
 """
+import os
+
+from smart_hub.demand_model import RidgeModel
 from smart_hub.freshness import stamp_problem
 
 FORECAST_HORIZON_SEC = 30
@@ -36,6 +44,26 @@ def forecast_problem(valid, horizon_sec, model_id, stamp, now, last_stamp=None,
     if not problem and last_stamp is not None and stamp < last_stamp:
         problem = 'OUT_OF_ORDER'
     return problem
+
+
+def forecast_margin(model_path, quantile):
+    """Return (model_id, margin): the model's validation-residual quantile, or ('', 0.0)."""
+    if not quantile:
+        return '', 0.0
+    if not model_path:
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            model_path = os.path.join(get_package_share_directory('smart_hub'), 'models',
+                                      'demand_ridge.json')
+        except LookupError:
+            return '', 0.0
+    if not os.path.isfile(model_path):
+        return '', 0.0
+    model = RidgeModel.load(model_path)
+    margin = model.residual_quantiles.get('%g' % quantile)
+    if margin is None:
+        return '', 0.0
+    return model.model_id, max(0.0, float(margin))
 
 
 class DispatchPolicy:
@@ -62,11 +90,12 @@ class DispatchPolicy:
         return True
 
     def update(self, now, prediction_valid, predicted, queue_valid, queue_count,
-               bus_available, outstanding):
+               bus_available, outstanding, margin=0.0):
         """Return 'PREDICTED', 'OBSERVED' or 'FALLBACK' to request a mission, else None."""
         if prediction_valid:
             value, reason = predicted, 'PREDICTED'
-            self.high_streak = self.high_streak + 1 if predicted >= self.high else 0
+            upper = predicted + max(0.0, margin)
+            self.high_streak = self.high_streak + 1 if upper >= self.high else 0
             trigger = self.high_streak >= self.consecutive
             if self.observed_floor and queue_valid:
                 value = max(predicted, queue_count)

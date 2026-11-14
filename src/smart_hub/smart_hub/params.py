@@ -18,6 +18,7 @@ RANGES = {
     'dispatch_high': (0.0, 100.0),
     'dispatch_low': (0.0, 100.0),
     'dispatch_cooldown_sec': (0.0, 600.0),
+    'dispatch_upper_quantile': (0.0, 0.99),
     'crossing_lease_sec': (0.2, 30.0),
     # parking
     'reservation_ttl_sec': (5.0, 120.0),
