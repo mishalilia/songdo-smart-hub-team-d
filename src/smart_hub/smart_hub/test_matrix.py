@@ -1085,6 +1085,9 @@ def _run_case(case, index, opts, lock, attempt, domain):
            'record:=' + ('true' if case['record'] else 'false')]
     if case['variant']:
         cmd.append('variant:=' + case['variant'])
+    for key in ('dispatch_high', 'dispatch_low'):           # threshold ablation only
+        if case.get(key) is not None:
+            cmd.append('%s:=%g' % (key, case[key]))
     env = dict(os.environ, ROS_DOMAIN_ID=str(domain), SMART_HUB_RUN_TAG=tag,
                SMART_HUB_COMMIT=opts.commit, SMART_HUB_DIRTY='1' if opts.dirty else '0')
     for key, value in TRANSPORT_ENV.items():
