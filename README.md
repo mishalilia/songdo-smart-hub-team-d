@@ -305,8 +305,8 @@ Forecast + 1.66 ≥ 6 is forecast ≥ 4.34, so the gain could be only an earlier
 201–220 the reactive rule was run with `dispatch_high` 6, 5 and 4 (`dispatch_low` = high − 2,
 launch arguments) next to the predictive configuration; the plan, including the decision rule,
 was committed before the runs (`plan.json`). Node parameters of these runs equal those of the
-matrix runs apart from port and seed (commit `cedb8c8` adds only the launch arguments and the
-script).
+matrix runs apart from port and seed: `cedb8c8` = `9a47f50` node code + the ablation harness,
+plan and launch arguments only.
 
 **Demand model.** Errors are computed per episode; the model is compared with persistence by
 a paired whole-episode bootstrap on the 6 test episodes and on all 30 unseen episodes (the 6
@@ -407,7 +407,7 @@ thirteen matrices since the midterm, plus the ablation:
 | `M20261113-082431` / `-121230` | 2.5 | `b0f176a` | 156 / 30 | 148/156, 28/30 | 153/156, 30/30 | 3 cases failed the graph audit twice under load from another workload (load average 16–18); passed in a supplementary matrix on the same commit (`supplementary/`). Policy pairs did not see the same passengers (one random stream for arrivals and sensor noise) |
 | `M20261113-150132` | 2.6 | `a321fa5` | 176 | 174/176 | 176/176 | identical episodes; point-forecast dispatch: tie with reactive (S2 Δ +0.0 s, S8 +0.3 s) |
 | `M20261114-040405` | 2.6 | `9a47f50` | 176 | 173/176 | 176/176 | final, above: uncertainty-aware dispatch |
-| `A20261115-061707` | 2.6 | `cedb8c8` | 80 | 79/80 | 79/80 | dispatch threshold ablation (S2, seeds 201–220); 1 application failure: reactive at 4, seed 212, entry while C turned UNKNOWN (`evidence/dispatch_ablation/`) |
+| `A20261115-061707` | 2.6 | `cedb8c8` | 80 | 79/80 | 79/80 | dispatch threshold ablation (S2, seeds 201–220); 1 application failure: reactive at 4, seed 212 — the bus held a valid token; the evaluator counts entry while the crossing state is UNKNOWN as entry without permission (`evidence/dispatch_ablation/`) |
 
 What changed between `b0f176a` and `a321fa5` (all found in the evidence of the earlier matrices):
 arrivals in the simulator draw from their own random stream, so both policies on one seed see
@@ -452,11 +452,15 @@ seven people appear at once and every rule dispatches in the same second. After 
 all rules redispatch as soon as the bus returns; the bus boards at most four per stop
 (8–13 of 17–25 arrivals board in an S2 episode under either policy). The forecast is more accurate
 than persistence (T03), but in these scenarios that accuracy does not buy a better dispatch than
-a lower observed threshold, as 9.4 warns. One reactive-4 run (seed 212) failed a safety criterion:
-the bus entered C at 120.99 s with a valid token in the 100 ms sample in which the crossing state
-turned UNKNOWN (camera frozen at 120 s, 1 s staleness); recorded as an application failure in
-`evidence/dispatch_ablation/attempts.csv` and listed as a limitation (a vehicle already at the
-boundary when C becomes unknown).
+a lower observed threshold, as 9.4 warns. One reactive-4 run (seed 212) failed a safety criterion: the bus held a valid token; the evaluator counts entry while the crossing state is UNKNOWN as entry without permission.
+Timeline: token at 111.6 s, camera frozen at 120.0 s, crossing state UNKNOWN at 120.94 s,
+supervisor inhibit at 120.99 s (zero command 0.25 ms, standstill 10 ms); ground truth already had
+the footprint across the boundary in that 100 ms sample, and the bus stood just inside C until the
+state recovered. Stopping distance per §3.3, d = vτ + v²/(2a_min) + m with v ≤ 0.40 m/s,
+τ = 0.10 s, a_min = 0.5 m/s²: 0.04 + 0.16 m + m ≈ 0.20 m + m, so a bus closer than that cannot stop
+outside C. Fix proposed, not in the tested revision: a point of no return — if the stopping
+distance exceeds the distance to C, the entry stands as permitted and the bus continues through
+instead of stopping inside. Not seen in the 176-case matrix.
 
 Repeated runs, mean ± standard deviation (n runs): S3 position error 0.101 ± 0.023 m, yaw
 0.011 ± 0.075 rad, ETA error at 5 m −0.74 ± 0.32 s (10); S7 arrival error 0.095 ± 0.002 m,
