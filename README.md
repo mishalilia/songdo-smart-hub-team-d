@@ -213,8 +213,8 @@ ros2 run smart_hub train_demand_model --episodes 30
 ros2 run smart_hub scalability_benchmark
 
 # S1 on a recorded video (camera path): live, and offline against manual counts.
-# vtest.avi is not in the repository (see NOTICE); get it from OpenCV's samples and check it:
-curl -L -o vtest.avi https://github.com/opencv/opencv/raw/4.x/samples/data/vtest.avi
+# vtest.avi is not in the repository (see NOTICE): it is samples/data/vtest.avi of the
+# OpenCV 4.x source distribution. Copy it here and check it:
 sha256sum vtest.avi   # 45cddc9490be69345cbdab64ca583be65987e864ca408038e648db99e10516cf
 ros2 launch smart_hub s1_video.launch.py video:=/path/to/vtest.avi
 ros2 run smart_hub evaluate_s1_video --video /path/to/vtest.avi --truth evidence/s1_video/truth.csv \
