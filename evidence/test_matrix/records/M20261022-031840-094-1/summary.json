@@ -1,0 +1,192 @@
+{
+  "run_id": "FAULTS-m21394-s42-20261022-035901",
+  "scenario_id": "FAULTS",
+  "seed": "42",
+  "elapsed_sec": 25.2,
+  "commit": "unknown",
+  "config_sha256": "c72092517b79",
+  "machine": "Linux x86_64, 8 CPU",
+  "python": "3.12.3",
+  "latency_ms": {
+    "CLEAR_STOP_REQUEST_OK": {
+      "n": 1,
+      "mean": 26.95,
+      "p50": 26.95,
+      "p95": 26.95,
+      "max": 26.95
+    },
+    "CONFIRM_READY_OK": {
+      "n": 1,
+      "mean": 47.73,
+      "p50": 47.73,
+      "p95": 47.73,
+      "max": 47.73
+    },
+    "CROSSING_GRANTED": {
+      "n": 1,
+      "mean": 0.06,
+      "p50": 0.06,
+      "p95": 0.06,
+      "max": 0.06
+    },
+    "ROUTE_COMPUTED": {
+      "n": 5,
+      "mean": 0.164,
+      "p50": 0.16,
+      "p95": 0.19,
+      "max": 0.19
+    }
+  },
+  "topic_age_ms": {
+    "/camera/image_raw": {
+      "n": 250,
+      "mean": 22.625785716,
+      "p50": 16.177712,
+      "p95": 58.331146,
+      "max": 179.847828
+    },
+    "/crossing/state": {
+      "n": 251,
+      "mean": 7.126701800796813,
+      "p50": 3.773214,
+      "p95": 25.505402,
+      "max": 76.418868
+    },
+    "/hub/demand": {
+      "n": 25,
+      "mean": 10.63688844,
+      "p50": 6.354696,
+      "p95": 37.454356,
+      "max": 44.224505
+    },
+    "/hub/queue": {
+      "n": 126,
+      "mean": 55.43833726190476,
+      "p50": 50.849025,
+      "p95": 108.928576,
+      "max": 209.7931
+    },
+    "/hub/safety": {
+      "n": 251,
+      "mean": 6.839727266932271,
+      "p50": 2.44843,
+      "p95": 29.739702,
+      "max": 142.455565
+    },
+    "/hub/vehicles": {
+      "n": 250,
+      "mean": 14.415782824,
+      "p50": 9.798974,
+      "p95": 40.977586,
+      "max": 170.651527
+    },
+    "/parking/state": {
+      "n": 52,
+      "mean": 8.239734153846154,
+      "p50": 4.214033,
+      "p95": 40.641846,
+      "max": 65.943581
+    },
+    "/robot/odom": {
+      "n": 500,
+      "mean": 11.740007974000001,
+      "p50": 4.156302,
+      "p95": 44.106972,
+      "max": 248.381064
+    },
+    "/sim/pedestrians": {
+      "n": 250,
+      "mean": 21.095115795999998,
+      "p50": 14.278373,
+      "p95": 56.558873,
+      "max": 179.365527
+    },
+    "/traffic/edges": {
+      "n": 51,
+      "mean": 19.876895274509806,
+      "p50": 13.858006,
+      "p95": 61.278682,
+      "max": 147.432837
+    }
+  },
+  "topic_rate_hz": {
+    "/hub/queue": 5.01,
+    "/hub/demand": 1.0,
+    "/hub/vehicles": 9.7,
+    "/traffic/edges": 2.02,
+    "/crossing/state": 10.06,
+    "/parking/state": 2.01,
+    "/hub/safety": 10.08,
+    "/robot/odom": 19.45,
+    "/sim/pedestrians": 9.7,
+    "/camera/image_raw": 9.7
+  },
+  "energy": {
+    "iot/barrier": {
+      "power_w": "0.300",
+      "energy_j": "7.305"
+    },
+    "iot/bus_door": {
+      "power_w": "0.200",
+      "energy_j": "4.870"
+    },
+    "iot/led/P1": {
+      "power_w": "0.200",
+      "energy_j": "4.810"
+    },
+    "iot/led/P2": {
+      "power_w": "0.200",
+      "energy_j": "4.810"
+    },
+    "iot/led/P3": {
+      "power_w": "0.200",
+      "energy_j": "4.810"
+    },
+    "iot/slot_sensor/P1": {
+      "power_w": "0.100",
+      "energy_j": "2.435"
+    },
+    "iot/slot_sensor/P2": {
+      "power_w": "0.100",
+      "energy_j": "2.435"
+    },
+    "iot/slot_sensor/P3": {
+      "power_w": "0.100",
+      "energy_j": "2.435"
+    },
+    "iot/camera": {
+      "power_w": "2.500",
+      "energy_j": "60.875"
+    },
+    "bus1": {
+      "power_w": "12.000",
+      "energy_j": "292.200",
+      "distance_m": "0.000",
+      "energy_per_m_j": "0.000"
+    },
+    "robot1": {
+      "power_w": "5.841",
+      "energy_j": "142.274",
+      "distance_m": "4.562",
+      "energy_per_m_j": "31.184"
+    }
+  },
+  "counts": {
+    "collisions": 0,
+    "crossing_conflicts": 0,
+    "safety_interventions": 0,
+    "goals_succeeded": 0,
+    "goals_aborted": 0,
+    "goals_canceled": 0,
+    "goals_rejected": 0,
+    "reroutes": 0,
+    "crossing_grants": 1,
+    "boarded": 0
+  },
+  "queue_wait_sec": {
+    "n": 0
+  },
+  "mission_time_sec": {
+    "n": 0
+  }
+}

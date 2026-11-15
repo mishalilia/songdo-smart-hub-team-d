@@ -1,0 +1,21 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.003,scenario_runner,INJECT,disconnect_slot_sensor,
+7.130,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=195 crossing_wait=0.0s latency_ms=0.15,
+7.133,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=198 crossing_wait=0.0s latency_ms=0.21,
+7.147,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=212 crossing_wait=0.0s latency_ms=0.21,
+7.146,robot,ROUTE_COMPUTED,W->D OK path=W-Cn-Cs-J-D cost=25.714s excluded=- edges_age_ms=211 crossing_wait=0.0s latency_ms=0.21,
+7.227,robot1,CROSSING_GRANTED,latency_ms=0.12,219c92acc69347daae743bdea71f53cf
+7.231,robot1,CROSSING_GRANTED,latency_ms=0.12,7f1772f5c3ad4dfbaa26470908e84e4e
+7.245,crossing,CROSSING_OWNED,robot1,
+7.275,robot1,CROSSING_ACQUIRED,,219c92acc69347daae743bdea71f53cf
+7.287,crossing,CROSSING_OWNED,robot1,
+7.294,robot1,CROSSING_ACQUIRED,,219c92acc69347daae743bdea71f53cf
+7.776,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+7.847,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+8.330,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+8.348,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+8.835,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+8.894,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+9.344,crossing,CROSSING_FREE,,
+9.377,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,
+9.398,robot1,CROSSING_RENEW_DENIED,TOKEN_MISMATCH,

@@ -36,7 +36,7 @@ from smart_hub_interfaces.srv import ComputeRoute, RequestCrossing
 from std_msgs.msg import Bool
 
 BUS_ID = 'bus1'
-RADIUS = 0.30
+RADIUS = hub_map.FOOTPRINT_RADIUS_M['bus']
 WAYPOINT_TOLERANCE_M = 0.10
 STOPPED_MPS = 0.02
 SERVICE_TIMEOUT_SEC = 1.0
@@ -57,8 +57,7 @@ def segment_crosses_c(p, q):
 
 
 def footprint_in_c(x, y):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - RADIUS <= x <= xmax + RADIUS and ymin - RADIUS <= y <= ymax + RADIUS
+    return hub_map.footprint_in_crossing(x, y, RADIUS)
 
 
 class Mission:

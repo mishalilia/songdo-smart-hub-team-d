@@ -1,0 +1,267 @@
+{
+  "run_id": "S7-unreachable_destination-m17182r-s42-20261113-073816",
+  "scenario_id": "S7",
+  "seed": "42",
+  "elapsed_sec": 1.9,
+  "started_utc": "2026-11-13T07:38:22+00:00",
+  "written_utc": "2026-11-13T07:38:24+00:00",
+  "scenario_sha256": "4c59c97d60d1fbb7cf86706f153e8fcbbcab71ae13f96d8edba301c942914b07",
+  "commit": "0162266d9c374bfaff0ebc34be7b5090b5135869",
+  "commit_dirty": false,
+  "config_sha256": "ef8cbb22dc8c6fc4cd690d99becd7287d09176b1a880ada18b38d3cfb41ba76b",
+  "files_sha256": {
+    "config/hub.yaml": "ef8cbb22dc8c6fc4cd690d99becd7287d09176b1a880ada18b38d3cfb41ba76b",
+    "config/map.yaml": "eb99288b6e9d617840b099a97bf6806917ce08db518a871cbf3e3a0ffe0893c3",
+    "models/demand_ridge.json": "401ee10be9c2eb47c5c88fbb866da39851075a9a0fa9cc64d07e6df234f2adc7"
+  },
+  "evaluator": "metrics_logger r3: strict crossing occupancy, censored waits, route stops, graph audit, provenance",
+  "ros_distro": "jazzy",
+  "rmw": "rmw_fastrtps_cpp",
+  "machine": "Linux x86_64, 8 CPU",
+  "os": "Linux-6.12.113+deb13-amd64-x86_64-with-glibc2.39",
+  "cpu_model": "AMD Ryzen 5 2500U with Radeon Vega Mobile Gfx",
+  "ram_gb": 13.6,
+  "python": "3.12.3",
+  "latency_ms": {
+    "CONFIRM_READY_OK": {
+      "n": 1,
+      "mean": 14.33,
+      "p50": 14.33,
+      "p95": 14.33,
+      "max": 14.33
+    },
+    "ROUTE_COMPUTED": {
+      "n": 8,
+      "mean": 0.18875,
+      "p50": 0.19,
+      "p95": 0.23,
+      "max": 0.23
+    }
+  },
+  "topic_age_ms": {
+    "/camera/image_raw": {
+      "n": 38,
+      "mean": 11.005159052631578,
+      "p50": 10.345582,
+      "p95": 20.193134,
+      "max": 23.857126
+    },
+    "/crossing/state": {
+      "n": 39,
+      "mean": 2.622938076923077,
+      "p50": 1.143302,
+      "p95": 10.049381,
+      "max": 18.266967
+    },
+    "/hub/demand": {
+      "n": 3,
+      "mean": 1.4335436666666668,
+      "p50": 1.310608,
+      "p95": 2.009456,
+      "max": 2.009456
+    },
+    "/hub/queue": {
+      "n": 19,
+      "mean": 25.071518631578947,
+      "p50": 25.189604,
+      "p95": 33.433914,
+      "max": 33.433914
+    },
+    "/hub/safety": {
+      "n": 38,
+      "mean": 3.365456157894737,
+      "p50": 2.541903,
+      "p95": 9.072885,
+      "max": 9.210877
+    },
+    "/hub/vehicles": {
+      "n": 38,
+      "mean": 6.736164842105263,
+      "p50": 5.979853,
+      "p95": 11.415398,
+      "max": 11.45528
+    },
+    "/parking/state": {
+      "n": 7,
+      "mean": 2.000126857142857,
+      "p50": 1.661228,
+      "p95": 5.414346,
+      "max": 5.414346
+    },
+    "/robot/odom": {
+      "n": 76,
+      "mean": 2.5555096184210524,
+      "p50": 1.403245,
+      "p95": 7.085816,
+      "max": 8.618142
+    },
+    "/sim/pedestrians": {
+      "n": 38,
+      "mean": 10.07146302631579,
+      "p50": 9.785871,
+      "p95": 19.919369,
+      "max": 23.642186
+    },
+    "/traffic/edges": {
+      "n": 8,
+      "mean": 4.5203215,
+      "p50": 2.361043,
+      "p95": 15.928831,
+      "max": 15.928831
+    }
+  },
+  "topic_rate_hz": {
+    "/hub/queue": 10.5,
+    "/hub/demand": 2.0,
+    "/hub/vehicles": 20.05,
+    "/traffic/edges": 4.81,
+    "/crossing/state": 19.01,
+    "/parking/state": 5.0,
+    "/hub/safety": 19.31,
+    "/robot/odom": 39.3,
+    "/sim/pedestrians": 20.03,
+    "/camera/image_raw": 20.03
+  },
+  "graph": {},
+  "energy": {
+    "iot/barrier": {
+      "power_w": "0.300",
+      "energy_j": "1.140"
+    },
+    "iot/bus_door": {
+      "power_w": "0.200",
+      "energy_j": "0.760"
+    },
+    "iot/led/P1": {
+      "power_w": "0.200",
+      "energy_j": "0.740"
+    },
+    "iot/led/P2": {
+      "power_w": "0.200",
+      "energy_j": "0.740"
+    },
+    "iot/led/P3": {
+      "power_w": "0.200",
+      "energy_j": "0.740"
+    },
+    "iot/slot_sensor/P1": {
+      "power_w": "0.100",
+      "energy_j": "0.380"
+    },
+    "iot/slot_sensor/P2": {
+      "power_w": "0.100",
+      "energy_j": "0.380"
+    },
+    "iot/slot_sensor/P3": {
+      "power_w": "0.100",
+      "energy_j": "0.380"
+    },
+    "iot/camera": {
+      "power_w": "2.500",
+      "energy_j": "9.500"
+    },
+    "bus1": {
+      "power_w": "12.000",
+      "energy_j": "45.600",
+      "distance_m": "0.000",
+      "energy_per_m_j": "0.000"
+    },
+    "robot1": {
+      "power_w": "5.841",
+      "energy_j": "20.093",
+      "distance_m": "0.113",
+      "energy_per_m_j": "178.602"
+    }
+  },
+  "counts": {
+    "collisions": 0,
+    "crossing_strict_occupancy": 0,
+    "crossing_unauthorized_entries": 0,
+    "crossing_token_overlaps": 0,
+    "safety_interventions": 0,
+    "goals_succeeded": 0,
+    "goals_aborted": 0,
+    "goals_canceled": 0,
+    "goals_rejected": 0,
+    "reroutes": 0,
+    "crossing_grants": 0,
+    "boarded": 0
+  },
+  "crossing": {
+    "truth_samples": 38,
+    "strict_occupancy": {
+      "episodes": 0,
+      "seconds": 0,
+      "by_class": {
+        "controlled_controlled": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "controlled_car": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "controlled_pedestrian": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "car_car": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "car_pedestrian": {
+          "episodes": 0,
+          "seconds": 0
+        }
+      }
+    },
+    "unauthorized_entries": {
+      "no_grant": 0,
+      "pedestrian_present": 0,
+      "car_against_owner": 0
+    },
+    "token_overlaps": 0,
+    "pedestrian_response_ms": {
+      "n": 0
+    },
+    "pedestrian_response_unresolved": 0,
+    "pedestrian_response_exited": 0,
+    "contacts": 0,
+    "relaxed_conflicts_diagnostic": 0
+  },
+  "route_stops": {
+    "latency_ms": {
+      "n": 0
+    },
+    "unresolved": 0,
+    "held_samples": {},
+    "motion_without_route": 0
+  },
+  "queue": {
+    "arrived": 0,
+    "boarded": 0,
+    "abandoned": 0,
+    "waiting_at_end": 0,
+    "balked": 0,
+    "completion_rate": null,
+    "clearance_rate": null,
+    "wait_boarded_sec": {
+      "n": 0
+    },
+    "wait_abandoned_sec": {
+      "n": 0
+    },
+    "wait_censored_sec": {
+      "n": 0
+    },
+    "wait_all_lower_bound_sec": {
+      "n": 0
+    }
+  },
+  "queue_wait_sec": {
+    "n": 0
+  },
+  "mission_time_sec": {
+    "n": 0
+  }
+}

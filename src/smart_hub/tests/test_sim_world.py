@@ -59,6 +59,26 @@ def test_same_seed_is_deterministic():
     assert a.observed_pedestrians(0.05) == b.observed_pedestrians(0.05)
 
 
+def test_arrivals_do_not_depend_on_sensor_reads_or_queue_changes():
+    # Common random numbers: a policy that boards passengers earlier, or a node that reads the
+    # sensors more often, must not change when passengers arrive (paired comparison, 9.4).
+    # Whether an arrival finds room in Q (QUEUE_BALKED otherwise) depends on the service.
+    def arrivals(world):
+        return [round(e.t, 2) for e in world.log
+                if e.event in ('QUEUE_ENTERED', 'QUEUE_BALKED')]
+    scenario = load('S2')
+    a, b = World(scenario, seed=5), World(scenario, seed=5)
+    while a.t < 200.0:
+        a.step()
+        b.step()
+        for _ in range(3):
+            b.observed_pedestrians(0.05)
+        if abs(b.t - 100.0) < 1e-9:
+            for p in b.queue_peds()[:4]:
+                del b.peds[p.ped_id]
+    assert len(arrivals(a)) > 10 and arrivals(a) == arrivals(b)
+
+
 def test_s1_truth_timeline():
     w = World(load('S1'), seed=42)
     for t, expected in ((4.9, 0), (9.9, 3), (14.9, 5), (19.9, 4)):

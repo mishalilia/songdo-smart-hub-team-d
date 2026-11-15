@@ -1,0 +1,456 @@
+{
+  "run_id": "FAULTS-parking_sensor_stale-m17242r-s42-20261113-073816",
+  "scenario_id": "FAULTS",
+  "seed": "42",
+  "elapsed_sec": 9.5,
+  "started_utc": "2026-11-13T07:38:24+00:00",
+  "written_utc": "2026-11-13T07:38:34+00:00",
+  "scenario_sha256": "56995c7e3313eb5b4b02563f37b0601fd0d2bfd2d3416247d78799a6e1373a84",
+  "commit": "0162266d9c374bfaff0ebc34be7b5090b5135869",
+  "commit_dirty": false,
+  "config_sha256": "ef8cbb22dc8c6fc4cd690d99becd7287d09176b1a880ada18b38d3cfb41ba76b",
+  "files_sha256": {
+    "config/hub.yaml": "ef8cbb22dc8c6fc4cd690d99becd7287d09176b1a880ada18b38d3cfb41ba76b",
+    "config/map.yaml": "eb99288b6e9d617840b099a97bf6806917ce08db518a871cbf3e3a0ffe0893c3",
+    "models/demand_ridge.json": "401ee10be9c2eb47c5c88fbb866da39851075a9a0fa9cc64d07e6df234f2adc7"
+  },
+  "evaluator": "metrics_logger r3: strict crossing occupancy, censored waits, route stops, graph audit, provenance",
+  "ros_distro": "jazzy",
+  "rmw": "rmw_fastrtps_cpp",
+  "machine": "Linux x86_64, 8 CPU",
+  "os": "Linux-6.12.113+deb13-amd64-x86_64-with-glibc2.39",
+  "cpu_model": "AMD Ryzen 5 2500U with Radeon Vega Mobile Gfx",
+  "ram_gb": 13.6,
+  "python": "3.12.3",
+  "latency_ms": {
+    "CROSSING_GRANTED": {
+      "n": 2,
+      "mean": 0.12,
+      "p50": 0.12,
+      "p95": 0.12,
+      "max": 0.12
+    },
+    "ROUTE_COMPUTED": {
+      "n": 4,
+      "mean": 0.195,
+      "p50": 0.21,
+      "p95": 0.21,
+      "max": 0.21
+    }
+  },
+  "topic_age_ms": {
+    "/camera/image_raw": {
+      "n": 192,
+      "mean": 10.133859822916667,
+      "p50": 9.279169,
+      "p95": 16.728888,
+      "max": 29.014979
+    },
+    "/crossing/state": {
+      "n": 190,
+      "mean": 1.8056707368421054,
+      "p50": 1.130763,
+      "p95": 4.599758,
+      "max": 9.478373
+    },
+    "/hub/demand": {
+      "n": 19,
+      "mean": 2.897847842105263,
+      "p50": 2.359199,
+      "p95": 11.109688,
+      "max": 11.109688
+    },
+    "/hub/queue": {
+      "n": 96,
+      "mean": 25.643315187499997,
+      "p50": 28.260001,
+      "p95": 36.797221,
+      "max": 49.208814
+    },
+    "/hub/safety": {
+      "n": 190,
+      "mean": 3.778292705263158,
+      "p50": 2.947107,
+      "p95": 8.805159,
+      "max": 13.146206
+    },
+    "/hub/vehicles": {
+      "n": 192,
+      "mean": 6.472565588541666,
+      "p50": 5.818607,
+      "p95": 11.53117,
+      "max": 27.39107
+    },
+    "/parking/state": {
+      "n": 38,
+      "mean": 2.3766324210526317,
+      "p50": 1.611652,
+      "p95": 6.904222,
+      "max": 7.304029
+    },
+    "/robot/odom": {
+      "n": 382,
+      "mean": 2.2040626858638745,
+      "p50": 1.325768,
+      "p95": 6.23483,
+      "max": 28.520592
+    },
+    "/sim/pedestrians": {
+      "n": 192,
+      "mean": 9.062900307291667,
+      "p50": 8.27644,
+      "p95": 15.213602,
+      "max": 28.787538
+    },
+    "/traffic/edges": {
+      "n": 38,
+      "mean": 4.164149684210526,
+      "p50": 3.095904,
+      "p95": 10.184957,
+      "max": 12.506422
+    }
+  },
+  "topic_rate_hz": {
+    "/hub/queue": 10.02,
+    "/hub/demand": 2.16,
+    "/hub/vehicles": 20.11,
+    "/traffic/edges": 4.21,
+    "/crossing/state": 20.0,
+    "/parking/state": 3.86,
+    "/hub/safety": 19.96,
+    "/robot/odom": 40.0,
+    "/sim/pedestrians": 20.01,
+    "/camera/image_raw": 20.01
+  },
+  "graph": {
+    "t_sec": 2.01,
+    "nodes": [
+      "actuator_bridge",
+      "bus_manager",
+      "dashboard_marker_publisher",
+      "demand_predictor",
+      "hub_coordinator",
+      "hub_ui",
+      "metrics_logger",
+      "parking_manager",
+      "passenger_detector",
+      "robot_manager",
+      "route_planner",
+      "safety_supervisor",
+      "scenario_runner",
+      "traffic_monitor"
+    ],
+    "topics": {
+      "/hub/queue": {
+        "publishers": [
+          "passenger_detector RELIABLE VOLATILE"
+        ],
+        "subscribers": [
+          "dashboard_marker_publisher",
+          "demand_predictor",
+          "hub_coordinator",
+          "hub_ui",
+          "metrics_logger",
+          "safety_supervisor"
+        ],
+        "rate_hz": 10.0
+      },
+      "/hub/demand": {
+        "publishers": [
+          "demand_predictor RELIABLE VOLATILE"
+        ],
+        "subscribers": [
+          "dashboard_marker_publisher",
+          "hub_coordinator",
+          "hub_ui",
+          "metrics_logger"
+        ],
+        "rate_hz": 1.86
+      },
+      "/hub/vehicles": {
+        "publishers": [
+          "scenario_runner RELIABLE VOLATILE"
+        ],
+        "subscribers": [
+          "bus_manager",
+          "dashboard_marker_publisher",
+          "hub_coordinator",
+          "hub_ui",
+          "metrics_logger",
+          "safety_supervisor",
+          "traffic_monitor"
+        ],
+        "rate_hz": 20.01
+      },
+      "/traffic/edges": {
+        "publishers": [
+          "traffic_monitor RELIABLE VOLATILE"
+        ],
+        "subscribers": [
+          "dashboard_marker_publisher",
+          "hub_coordinator",
+          "hub_ui",
+          "metrics_logger",
+          "robot_manager",
+          "route_planner"
+        ],
+        "rate_hz": 4.0
+      },
+      "/crossing/state": {
+        "publishers": [
+          "hub_coordinator RELIABLE TRANSIENT_LOCAL"
+        ],
+        "subscribers": [
+          "dashboard_marker_publisher",
+          "hub_ui",
+          "metrics_logger",
+          "route_planner",
+          "safety_supervisor",
+          "scenario_runner"
+        ],
+        "rate_hz": 20.0
+      },
+      "/parking/state": {
+        "publishers": [
+          "parking_manager RELIABLE TRANSIENT_LOCAL"
+        ],
+        "subscribers": [
+          "dashboard_marker_publisher",
+          "hub_coordinator",
+          "hub_ui",
+          "metrics_logger",
+          "scenario_runner"
+        ],
+        "rate_hz": 3.86
+      },
+      "/hub/safety": {
+        "publishers": [
+          "safety_supervisor RELIABLE TRANSIENT_LOCAL"
+        ],
+        "subscribers": [
+          "bus_manager",
+          "dashboard_marker_publisher",
+          "hub_ui",
+          "metrics_logger",
+          "robot_manager"
+        ],
+        "rate_hz": 19.96
+      },
+      "/robot/odom": {
+        "publishers": [
+          "scenario_runner RELIABLE VOLATILE"
+        ],
+        "subscribers": [
+          "dashboard_marker_publisher",
+          "metrics_logger",
+          "robot_manager",
+          "safety_supervisor"
+        ],
+        "rate_hz": 40.0
+      },
+      "/sim/pedestrians": {
+        "publishers": [
+          "scenario_runner RELIABLE VOLATILE"
+        ],
+        "subscribers": [
+          "dashboard_marker_publisher",
+          "hub_ui",
+          "metrics_logger",
+          "passenger_detector",
+          "safety_supervisor"
+        ],
+        "rate_hz": 20.09
+      },
+      "/camera/image_raw": {
+        "publishers": [
+          "scenario_runner BEST_EFFORT VOLATILE"
+        ],
+        "subscribers": [
+          "metrics_logger"
+        ],
+        "rate_hz": 20.09
+      },
+      "/hub/events": {
+        "publishers": [
+          "bus_manager RELIABLE VOLATILE",
+          "demand_predictor RELIABLE VOLATILE",
+          "hub_coordinator RELIABLE VOLATILE",
+          "metrics_logger RELIABLE VOLATILE",
+          "parking_manager RELIABLE VOLATILE",
+          "passenger_detector RELIABLE VOLATILE",
+          "robot_manager RELIABLE VOLATILE",
+          "route_planner RELIABLE VOLATILE",
+          "safety_supervisor RELIABLE VOLATILE",
+          "scenario_runner RELIABLE VOLATILE",
+          "traffic_monitor RELIABLE VOLATILE"
+        ],
+        "subscribers": [
+          "bus_manager",
+          "demand_predictor",
+          "hub_coordinator",
+          "hub_ui",
+          "metrics_logger",
+          "parking_manager",
+          "passenger_detector",
+          "robot_manager",
+          "safety_supervisor",
+          "scenario_runner",
+          "traffic_monitor"
+        ],
+        "rate_hz": 0.0
+      },
+      "/hub/estop": {
+        "publishers": [
+          "hub_ui RELIABLE TRANSIENT_LOCAL",
+          "scenario_runner RELIABLE TRANSIENT_LOCAL"
+        ],
+        "subscribers": [
+          "safety_supervisor",
+          "scenario_runner"
+        ],
+        "rate_hz": 0.0
+      }
+    }
+  },
+  "energy": {
+    "iot/barrier": {
+      "power_w": "0.300",
+      "energy_j": "3.840"
+    },
+    "iot/bus_door": {
+      "power_w": "0.200",
+      "energy_j": "2.560"
+    },
+    "iot/led/P1": {
+      "power_w": "0.200",
+      "energy_j": "2.540"
+    },
+    "iot/led/P2": {
+      "power_w": "0.200",
+      "energy_j": "2.540"
+    },
+    "iot/led/P3": {
+      "power_w": "0.200",
+      "energy_j": "2.540"
+    },
+    "iot/slot_sensor/P1": {
+      "power_w": "0.100",
+      "energy_j": "1.280"
+    },
+    "iot/slot_sensor/P2": {
+      "power_w": "0.100",
+      "energy_j": "1.280"
+    },
+    "iot/slot_sensor/P3": {
+      "power_w": "0.100",
+      "energy_j": "1.280"
+    },
+    "iot/camera": {
+      "power_w": "2.500",
+      "energy_j": "32.000"
+    },
+    "bus1": {
+      "power_w": "12.000",
+      "energy_j": "153.600",
+      "distance_m": "0.000",
+      "energy_per_m_j": "0.000"
+    },
+    "robot1": {
+      "power_w": "7.577",
+      "energy_j": "74.242",
+      "distance_m": "1.980",
+      "energy_per_m_j": "37.504"
+    }
+  },
+  "counts": {
+    "collisions": 0,
+    "crossing_strict_occupancy": 0,
+    "crossing_unauthorized_entries": 0,
+    "crossing_token_overlaps": 1,
+    "safety_interventions": 0,
+    "goals_succeeded": 0,
+    "goals_aborted": 0,
+    "goals_canceled": 0,
+    "goals_rejected": 0,
+    "reroutes": 0,
+    "crossing_grants": 2,
+    "boarded": 0
+  },
+  "crossing": {
+    "truth_samples": 192,
+    "strict_occupancy": {
+      "episodes": 0,
+      "seconds": 0,
+      "by_class": {
+        "controlled_controlled": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "controlled_car": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "controlled_pedestrian": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "car_car": {
+          "episodes": 0,
+          "seconds": 0
+        },
+        "car_pedestrian": {
+          "episodes": 0,
+          "seconds": 0
+        }
+      }
+    },
+    "unauthorized_entries": {
+      "no_grant": 0,
+      "pedestrian_present": 0,
+      "car_against_owner": 0
+    },
+    "token_overlaps": 1,
+    "pedestrian_response_ms": {
+      "n": 0
+    },
+    "pedestrian_response_unresolved": 0,
+    "pedestrian_response_exited": 0,
+    "contacts": 0,
+    "relaxed_conflicts_diagnostic": 0
+  },
+  "route_stops": {
+    "latency_ms": {
+      "n": 0
+    },
+    "unresolved": 0,
+    "held_samples": {},
+    "motion_without_route": 0
+  },
+  "queue": {
+    "arrived": 0,
+    "boarded": 0,
+    "abandoned": 0,
+    "waiting_at_end": 0,
+    "balked": 0,
+    "completion_rate": null,
+    "clearance_rate": null,
+    "wait_boarded_sec": {
+      "n": 0
+    },
+    "wait_abandoned_sec": {
+      "n": 0
+    },
+    "wait_censored_sec": {
+      "n": 0
+    },
+    "wait_all_lower_bound_sec": {
+      "n": 0
+    }
+  },
+  "queue_wait_sec": {
+    "n": 0
+  },
+  "mission_time_sec": {
+    "n": 0
+  }
+}

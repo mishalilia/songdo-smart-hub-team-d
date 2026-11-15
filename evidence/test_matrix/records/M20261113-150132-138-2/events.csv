@@ -1,0 +1,86 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.002,scenario_runner,RUN_START,seed=3,S3-pedestrian_in_crossing-m09338r-s3-20261113-191409
+-0.002,scenario_runner,SCENARIO_STARTED,waited=5.1s missing=,S3-pedestrian_in_crossing-m09338r-s3-20261113-191409
+-0.001,ped001,QUEUE_ENTERED,x=5.10 y=6.70,
+0.029,ped002,QUEUE_ENTERED,x=2.44 y=5.27,
+0.029,ped003,QUEUE_ENTERED,x=3.86 y=5.28,
+0.029,ped004,QUEUE_ENTERED,x=3.75 y=6.73,
+0.030,scenario_runner,INJECT,spawn_queue_tracks,
+0.043,A-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.048,P1,SLOT_UNKNOWN,was FREE,
+0.049,P2,SLOT_UNKNOWN,was FREE,
+0.049,P3,SLOT_UNKNOWN,was FREE,
+0.043,A-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,B-Cn,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,B-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,Cn-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,Cn-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,Cn-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,Cs-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,D-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,E-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,E-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,P1-P2,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,P2-P3,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,P3-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.043,R-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.186,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+0.584,passenger_detector,QUEUE_COUNT,count=4 crossing=False,
+0.842,P1,SLOT_FREE,was UNKNOWN,
+0.842,P2,SLOT_FREE,was UNKNOWN,
+0.842,P3,SLOT_FREE,was UNKNOWN,
+1.002,safety_supervisor,STOP_CLEARED,scenario,scenario_runner
+1.009,safety_supervisor,CLEAR_STOP_REQUEST_OK,OK latency_ms=7.89,
+1.025,robot1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+1.026,bus1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+2.006,bus1,GOAL_ACCEPTED,dock,bba9ccf933224759bf41d893a0687a31
+2.010,scenario_runner,DOCK_ACCEPTED,,bba9ccf933224759bf41d893a0687a31
+2.050,bus,ROUTE_COMPUTED,A->B OK path=A-N-Cn-B cost=25.714s excluded=- edges_age_ms=309 crossing_wait=0.0s latency_ms=0.42,
+2.103,bus1,ROUTE,A-N-Cn-B,bba9ccf933224759bf41d893a0687a31
+7.000,bus1,CROSSING_GRANTED,latency_ms=0.10,be43156431d440158e7eae3f5ba4cd6c
+7.049,bus1,CROSSING_ACQUIRED,,be43156431d440158e7eae3f5ba4cd6c
+7.078,crossing,CROSSING_OWNED,bus1,
+13.499,bus1,ETA_AT_5M,eta_sec=18.30,bba9ccf933224759bf41d893a0687a31
+18.001,scenario_runner,INJECT,crossing_pedestrian,
+18.051,crossing,STRICT_OCCUPANCY,bus1 pedestrians=1,ground_truth
+18.183,passenger_detector,QUEUE_COUNT,count=4 crossing=True,
+18.226,bus1,SAFETY_INHIBIT,PEDESTRIAN_IN_C,
+18.251,bus1,PEDESTRIAN_RESPONSE,latency_ms=200,ground_truth
+18.275,bus1,STANDSTILL_MEASURED,cause=PEDESTRIAN_IN_C latency_ms=27.99 zero_cmd_ms=0.59 observer_delay_ms=2.32,
+24.583,passenger_detector,QUEUE_COUNT,count=4 crossing=False,
+24.627,bus1,SAFETY_CLEAR,PEDESTRIAN_IN_C,
+27.000,bus1,CROSSING_RELEASED,latency_ms=0.06,be43156431d440158e7eae3f5ba4cd6c
+27.049,bus1,CROSSING_RELEASED,,be43156431d440158e7eae3f5ba4cd6c
+27.078,crossing,CROSSING_FREE,,
+33.741,B-Cn,EDGE_CONGESTED,density=0.33 speed=0.12 n=1,
+36.242,B-Cn,EDGE_NORMAL,density=0.00 speed=0.12 n=0,
+37.699,bus1,DOCKING,at bay B invalid_eta_s=6.1 eta_err_s=5.90,bba9ccf933224759bf41d893a0687a31
+38.799,bus1,DOCKED,pos_err_m=0.086 yaw_err_rad=0.015,bba9ccf933224759bf41d893a0687a31
+38.850,door,DEVICE_OPEN,,
+38.875,bus1,SAFETY_INHIBIT,DOOR_OPEN,
+38.899,bus1,DOOR_OPENED,,bba9ccf933224759bf41d893a0687a31
+39.801,ped001,BOARDED,wait_sec=39.80,bus1
+40.383,passenger_detector,QUEUE_COUNT,count=3 crossing=False,
+41.801,ped002,BOARDED,wait_sec=41.80,bus1
+42.383,passenger_detector,QUEUE_COUNT,count=2 crossing=False,
+43.801,ped003,BOARDED,wait_sec=43.80,bus1
+44.383,passenger_detector,QUEUE_COUNT,count=1 crossing=False,
+45.801,ped004,BOARDED,wait_sec=45.80,bus1
+46.383,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+46.952,door,DEVICE_CLOSE,,
+47.925,bus1,SAFETY_CLEAR,DOOR_OPEN,
+47.949,bus1,DOOR_CLOSED,,bba9ccf933224759bf41d893a0687a31
+47.952,bus1,GOAL_SUCCEED,DOCKED_AND_BOARDED,bba9ccf933224759bf41d893a0687a31
+47.965,scenario_runner,DOCK_RESULT,status=4 reason=DOCKED_AND_BOARDED,bba9ccf933224759bf41d893a0687a31
+48.000,bus,ROUTE_COMPUTED,B->A OK path=B-U-E-J-Cs-A cost=42.857s excluded=B-Cn edges_age_ms=259 crossing_wait=0.0s latency_ms=0.27,
+48.049,bus1,ROUTE,B-U-E-J-Cs-A,bba9ccf933224759bf41d893a0687a31
+60.647,demand_predictor,PREDICTION_VALID,history=60/60 s input=OK,
+64.647,demand_predictor,DEMAND_INFERENCE,latency_ms=0.0504,
+68.100,bus1,CROSSING_GRANTED,latency_ms=0.10,62a5292673b24955ba063d5cce665a3c
+68.149,bus1,CROSSING_ACQUIRED,,62a5292673b24955ba063d5cce665a3c
+68.178,crossing,CROSSING_OWNED,bus1,
+74.647,demand_predictor,DEMAND_INFERENCE,latency_ms=0.0562,
+80.400,bus1,CROSSING_RELEASED,latency_ms=0.09,62a5292673b24955ba063d5cce665a3c
+80.449,bus1,CROSSING_RELEASED,,62a5292673b24955ba063d5cce665a3c
+80.479,crossing,CROSSING_FREE,,
+84.647,demand_predictor,DEMAND_INFERENCE,latency_ms=0.0618,

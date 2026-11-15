@@ -153,7 +153,8 @@ function render(st) {
     <span>Queue</span><span>${q && q.valid ? q.count : 'UNKNOWN'}</span>
     <span>Crossing</span><span>${c.valid ? c.state + (c.owner ? ' · ' + c.owner : '') : 'UNKNOWN'}
       ${c.pedestrian ? pill('pedestrian', 'bad') : ''}</span>
-    <span>Parking free</span><span>${st.parking ? st.parking.available : '–'}</span>
+    <span>Parking free</span><span>${st.parking && st.parking.available != null
+      ? st.parking.available : 'UNKNOWN'}</span>
     <span>Barrier</span><span>${iotMsg('barrier')}</span>
     <span>Bus door</span><span>${iotMsg('bus_door')}</span>
     <span>LEDs</span><span>${['P1', 'P2', 'P3'].map((p) => p + ' ' + iotMsg('led/' + p))

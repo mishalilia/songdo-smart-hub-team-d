@@ -2,9 +2,11 @@
 """
 Metric helpers for metrics_logger (assignment 21.2).
 
-Nearest-rank percentiles, running series summaries, latency parsing from event reasons and
-crossing-conflict detection from ground truth.
+Nearest-rank percentiles, running series summaries, latency parsing from event reasons, the
+strict ground-truth record of crossing C (CrossingMonitor) and the passenger ledger with
+right-censored waits (QueueLedger).
 """
+from collections import Counter
 import math
 import re
 
@@ -12,6 +14,13 @@ from smart_hub import hub_map
 
 _LATENCY = re.compile(r'latency_ms=([0-9.]+)')
 _WAIT = re.compile(r'wait_sec=([0-9.]+)')
+
+AGENT_RADIUS = {k: hub_map.FOOTPRINT_RADIUS_M[k] for k in ('robot', 'bus', 'car')}
+CONTROLLED = ('robot', 'bus')
+STOPPED_MPS = 0.02
+PAIR_CLASSES = ('controlled_controlled', 'controlled_car', 'controlled_pedestrian',
+                'car_car', 'car_pedestrian')
+ENTRY_KINDS = ('no_grant', 'pedestrian_present', 'car_against_owner')
 
 
 def percentile(values, q):
@@ -49,27 +58,283 @@ def parse_wait_sec(reason):
     return float(m.group(1)) if m else None
 
 
-def in_crossing(x, y, radius=0.0):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - radius < x < xmax + radius and ymin - radius < y < ymax + radius
+in_crossing = hub_map.footprint_in_crossing     # same test as the nodes under evaluation
 
 
-def crossing_conflict(agents, pedestrians):
+def crossing_occupants(agents, pedestrians):
     """
-    Return True for simultaneous incompatible occupancy of C.
+    Return ({agent id: kind} with a footprint in C, number of pedestrians in C).
 
-    `agents`: [(id, kind, x, y, speed)] (radius by kind); `pedestrians`: [(x, y)].
-    Incompatible (assignment 21.2, physical occupancy): a hub-controlled agent (robot or
-    bus) inside C together with another agent, or moving while a pedestrian is inside C.
-    Scripted background cars are not arbitrated, so car-car overlaps are not counted.
+    `agents`: [(id, kind, x, y, speed)] ground truth (radius by kind); `pedestrians`:
+    [(x, y)] ground-truth centres.
     """
-    radius = {'robot': 0.20, 'bus': 0.30, 'car': 0.30}
+    inside = {a: k for a, k, x, y, _ in agents
+              if k in AGENT_RADIUS and in_crossing(x, y, AGENT_RADIUS[k])}
+    return inside, sum(1 for x, y in pedestrians if in_crossing(x, y))
+
+
+def pair_classes(inside, pedestrians):
+    """Return the classes of simultaneous physical occupancy present in one sample."""
+    controlled = sum(1 for k in inside.values() if k in CONTROLLED)
+    cars = len(inside) - controlled
+    present = {
+        'controlled_controlled': controlled >= 2,
+        'controlled_car': controlled >= 1 and cars >= 1,
+        'controlled_pedestrian': controlled >= 1 and pedestrians >= 1,
+        'car_car': cars >= 2,
+        'car_pedestrian': cars >= 1 and pedestrians >= 1,
+    }
+    return {c for c in PAIR_CLASSES if present[c]}
+
+
+class CrossingMonitor:
+    """
+    Strict ground-truth record of crossing C, one sample per truth message.
+
+    Separate measures, none of them filtered by a grace interval or a speed threshold:
+      strict occupancy     two or more users (robot, bus, car, pedestrian) physically in C
+                           in the same sample, by pair class, as episodes and seconds;
+      unauthorized entry   a footprint moving from outside to inside C without the right:
+                           `no_grant` (robot / bus that is not the owner in a fresh
+                           /crossing/state), `pedestrian_present` (robot / bus entering
+                           while a pedestrian was already inside), `car_against_owner`
+                           (background car entering a crossing owned by someone else);
+      token overlap        a grant for a new token while an earlier token was still live;
+      response latency     pedestrian enters C -> each robot / bus inside C measured at
+                           standstill (ground-truth speed <= STOPPED_MPS).
+    Contact is the simulator's COLLISION event and is counted by the logger. Every change
+    of the occupant set, owner or token is returned as a raw trace row.
+    """
+
+    MAX_GAP_SEC = 0.5       # a longer gap between truth samples is not counted as occupancy
+
+    def __init__(self):
+        self.samples = 0
+        self.last_t = None
+        self.known = set()          # agent ids present in the previous sample
+        self.inside = {}            # agent id -> kind inside C in the previous sample
+        self.pedestrians = 0
+        self.active = set()
+        self.key = None
+        self.episodes = Counter()
+        self.seconds = Counter()
+        self.unauthorized = Counter()
+        self.response = Series()
+        self.pending = {}           # agent id -> time the pedestrian entered
+        self.unresolved = 0         # pedestrian left before the agent was at standstill
+        self.exited = 0             # agent left C before it was at standstill
+        self.live_token = ''
+        self.token_overlaps = 0
+
+    def on_event(self, event, token):
+        """Follow the token lifecycle from the coordinator's events."""
+        if event == 'CROSSING_GRANTED':
+            if self.live_token and token != self.live_token:
+                self.token_overlaps += 1
+            self.live_token = token
+        elif event == 'CROSSING_FREE' or \
+                (event == 'CROSSING_RELEASED' and token == self.live_token):
+            self.live_token = ''
+
+    def sample(self, t, agents, pedestrians, owner, token=''):
+        """
+        Take one ground-truth sample at run time `t`.
+
+        `owner` is the owner in a fresh /crossing/state ('' when free, None when the state
+        is stale or invalid). Returns (trace row or None, [(event, entity, reason)]).
+        """
+        inside, peds = crossing_occupants(agents, pedestrians)
+        speed = {a: s for a, _, _, _, s in agents}
+        found = []
+        dt = 0.0 if self.last_t is None else min(max(t - self.last_t, 0.0), self.MAX_GAP_SEC)
+        for c in self.active:
+            self.seconds[c] += dt
+        if self.active:
+            self.seconds['any'] += dt
+
+        for agent, kind in sorted(inside.items()):
+            if agent in self.inside or agent not in self.known:
+                continue                      # already inside, or first seen (spawned)
+            kinds = []
+            if kind in CONTROLLED:
+                if owner != agent:
+                    kinds.append('no_grant')
+                if self.pedestrians:
+                    kinds.append('pedestrian_present')
+            elif owner and owner != agent:
+                kinds.append('car_against_owner')
+            for k in kinds:
+                self.unauthorized[k] += 1
+                found.append(('UNAUTHORIZED_ENTRY', agent, '%s owner=%s' % (
+                    k, 'UNKNOWN' if owner is None else owner or 'FREE')))
+
+        if peds and not self.pedestrians:
+            for agent, kind in inside.items():
+                if kind in CONTROLLED:
+                    self.pending.setdefault(agent, t)
+        for agent, since in sorted(self.pending.items()):
+            if agent not in inside:
+                self.exited += 1
+            elif speed.get(agent, 0.0) <= STOPPED_MPS:
+                self.response.add((t - since) * 1000.0)
+                found.append(('PEDESTRIAN_RESPONSE', agent,
+                              'latency_ms=%.0f' % ((t - since) * 1000.0)))
+            elif not peds:
+                self.unresolved += 1
+                found.append(('PEDESTRIAN_RESPONSE', agent, 'unresolved'))
+            else:
+                continue
+            del self.pending[agent]
+
+        active = pair_classes(inside, peds)
+        for c in sorted(active - self.active):
+            self.episodes[c] += 1
+        if active and not self.active:
+            self.episodes['any'] += 1
+            found.append(('STRICT_OCCUPANCY', 'crossing', '%s pedestrians=%d' % (
+                ';'.join(sorted(inside)), peds)))
+
+        key = (tuple(sorted(inside)), peds, owner, token)
+        row = None
+        if key != self.key:
+            row = ['%.3f' % t, ';'.join(key[0]), peds,
+                   'UNKNOWN' if owner is None else owner, token, ';'.join(sorted(active))]
+        self.key, self.active = key, active
+        self.known, self.inside, self.pedestrians = set(speed), inside, peds
+        self.last_t = t
+        self.samples += 1
+        return row, found
+
+    def summary(self):
+        def cell(c):
+            return {'episodes': self.episodes[c], 'seconds': round(self.seconds[c], 2)}
+        return {
+            'truth_samples': self.samples,
+            'strict_occupancy': dict(cell('any'), by_class={c: cell(c) for c in PAIR_CLASSES}),
+            'unauthorized_entries': {k: self.unauthorized[k] for k in ENTRY_KINDS},
+            'token_overlaps': self.token_overlaps,
+            'pedestrian_response_ms': self.response.summary(),
+            'pedestrian_response_unresolved': self.unresolved + len(self.pending),
+            'pedestrian_response_exited': self.exited,
+        }
+
+
+class QueueLedger:
+    """
+    Every passenger of the run, not only those who boarded (assignment 21.2).
+
+    A passenger enters the queue, then boards, abandons the queue, or is still waiting when
+    the run ends (right-censored: the recorded wait is a lower bound). Arrivals refused
+    because the queue zone was full are counted as balked.
+    """
+
+    def __init__(self):
+        self.entered = {}           # passenger id -> entry time, still waiting
+        self.arrived = 0
+        self.balked = 0
+        self.boarded = Series()
+        self.abandoned = Series()
+
+    def enter(self, passenger, t):
+        self.entered[passenger] = t
+        self.arrived += 1
+
+    def board(self, passenger, t, wait=None):
+        since = self.entered.pop(passenger, None)
+        if wait is None and since is not None:
+            wait = t - since
+        if wait is not None:
+            self.boarded.add(wait)
+
+    def abandon(self, passenger, t):
+        since = self.entered.pop(passenger, None)
+        if since is not None:
+            self.abandoned.add(t - since)
+
+    def summary(self, t):
+        censored = Series()
+        for since in self.entered.values():
+            censored.add(max(0.0, t - since))
+        everyone = Series()
+        for v in self.boarded.values + self.abandoned.values + censored.values:
+            everyone.add(v)
+        arrived = max(self.arrived, len(everyone.values))
+        done = len(self.boarded.values)
+        return {
+            'arrived': arrived, 'boarded': done, 'abandoned': len(self.abandoned.values),
+            'waiting_at_end': len(censored.values), 'balked': self.balked,
+            'completion_rate': round(done / arrived, 4) if arrived else None,
+            'clearance_rate': round(1.0 - len(censored.values) / arrived, 4)
+            if arrived else None,
+            'wait_boarded_sec': self.boarded.summary(),
+            'wait_abandoned_sec': self.abandoned.summary(),
+            'wait_censored_sec': censored.summary(),
+            'wait_all_lower_bound_sec': everyone.summary(),
+        }
+
+
+class StopMonitor:
+    """
+    Ground-truth evidence that a manager stops when its route becomes invalid (13.2-13.3).
+
+    demand(agent, cause, t) is called for a REROUTE or NO_ROUTE event; the stop latency
+    is the time from that event stamp to the first later truth sample at standstill.
+    After a NO_ROUTE stop the agent is held: any later moving sample, until release(),
+    is a MOTION_WITHOUT_ROUTE finding.
+    """
+
+    def __init__(self):
+        self.pending = {}                # agent -> (t, cause)
+        self.held = {}                   # agent -> truth samples seen at standstill
+        self.latency = Series()
+        self.motion_without_route = 0
+
+    def demand(self, agent, cause, t):
+        self.pending.setdefault(agent, (t, cause))
+
+    def release(self, agent):
+        self.held.pop(agent, None)
+
+    def sample(self, t, agents):
+        """Feed one truth sample; return [(event, entity_id, reason)] findings."""
+        found = []
+        for agent, _, _, _, speed in agents:
+            stopped = abs(speed) <= STOPPED_MPS
+            if agent in self.held:
+                if stopped:
+                    self.held[agent] += 1
+                else:
+                    self.motion_without_route += 1
+                    found.append(('MOTION_WITHOUT_ROUTE', agent, 'speed=%.3f' % speed))
+            since, cause = self.pending.get(agent, (None, ''))
+            if since is not None and stopped and t >= since:
+                del self.pending[agent]
+                self.latency.add((t - since) * 1000.0)
+                found.append(('ROUTE_STOP_MEASURED', agent, 'cause=%s latency_ms=%.0f' % (
+                    cause, (t - since) * 1000.0)))
+                if cause == 'NO_ROUTE':
+                    self.held.setdefault(agent, 0)
+        return found
+
+    def summary(self):
+        return {'latency_ms': self.latency.summary(), 'unresolved': len(self.pending),
+                'held_samples': dict(self.held),
+                'motion_without_route': self.motion_without_route}
+
+
+def relaxed_crossing_conflict(agents, pedestrians):
+    """
+    Return True under the midterm definition, kept only as a labelled diagnostic.
+
+    It ignores car-only occupancy and a pedestrian next to a stationary robot / bus, so it
+    undercounts; the reported measures come from CrossingMonitor.
+    """
     inside = [(k, s) for _, k, x, y, s in agents
-              if k in radius and in_crossing(x, y, radius[k])]
-    controlled = [(k, s) for k, s in inside if k in ('robot', 'bus')]
+              if k in AGENT_RADIUS and in_crossing(x, y, AGENT_RADIUS[k])]
+    controlled = [(k, s) for k, s in inside if k in CONTROLLED]
     if not controlled:
         return False
     if len(inside) >= 2:
         return True
     peds = any(in_crossing(x, y) for x, y in pedestrians)
-    return peds and any(speed > 0.02 for _, speed in controlled)
+    return peds and any(speed > STOPPED_MPS for _, speed in controlled)

@@ -1,0 +1,49 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.003,scenario_runner,RUN_START,seed=42,FAULTS-m15406-s42-20261022-040241
+-0.003,scenario_runner,SCENARIO_STARTED,waited=3.1s missing=,FAULTS-m15406-s42-20261022-040241
+0.002,A-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,A-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,B-Cn,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,B-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,Cn-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,Cn-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,Cn-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,Cs-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,D-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,E-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,E-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,P1-P2,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,P2-P3,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,P3-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.002,R-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.030,P1,SLOT_UNKNOWN,was FREE,
+0.031,P2,SLOT_UNKNOWN,was FREE,
+0.031,P3,SLOT_UNKNOWN,was FREE,
+0.097,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+0.736,P1,SLOT_FREE,was UNKNOWN,
+0.739,P2,SLOT_FREE,was UNKNOWN,
+0.746,P3,SLOT_FREE,was UNKNOWN,
+0.993,safety_supervisor,STOP_CLEARED,scenario,scenario_runner
+1.003,safety_supervisor,CLEAR_STOP_REQUEST_OK,OK latency_ms=11.56,
+1.044,robot1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+1.047,bus1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+1.999,robot1,GOAL_ACCEPTED,escort,fault-01
+2.013,scenario_runner,ESCORT_ACCEPTED,,4a433e1fac914c55b56547d86ab8062c
+2.035,robot,ROUTE_COMPUTED,R->R OK latency_ms=0.14,
+2.084,robot1,ROUTE,TO_PICKUP R cost=0.0s,fault-01
+2.133,robot1,PICKUP_ARRIVED,waiting for /robot/confirm_ready,fault-01
+3.995,robot1,READY_CONFIRMED,,fault-01
+4.005,robot1,CONFIRM_READY_OK,READY_ACCEPTED latency_ms=10.37,
+4.085,robot,ROUTE_COMPUTED,R->D OK latency_ms=0.13,
+4.135,robot1,ROUTE,ESCORT R-W-Cn-Cs-J-D cost=31.4s,fault-01
+4.233,robot,ROUTE_COMPUTED,R->D OK latency_ms=0.12,
+12.134,robot,ROUTE_COMPUTED,W->D OK latency_ms=0.13,
+12.235,robot1,CROSSING_GRANTED,latency_ms=0.08,0c2687a941354350943bd623b0d0f682
+12.282,robot1,CROSSING_ACQUIRED,,0c2687a941354350943bd623b0d0f682
+12.315,crossing,CROSSING_OWNED,robot1,
+21.483,robot,ROUTE_COMPUTED,Cn->D OK latency_ms=0.12,
+29.635,robot,ROUTE_COMPUTED,Cs->D OK latency_ms=0.13,
+30.023,demand_predictor,PREDICTION_VALID,history=31/31,
+32.791,robot1,SAFETY_INHIBIT,CMD_STALE,
+33.913,crossing,CROSSING_HOLD,robot1,
+35.023,demand_predictor,DEMAND_INFERENCE,latency_ms=0.0467,

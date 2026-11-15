@@ -1,0 +1,13 @@
+t_sec,agents_in_c,pedestrians_in_c,owner,token,occupancy_classes
+0.054,,0,UNKNOWN,,
+0.154,,0,,,
+7.150,,0,bus1,be43156431d440158e7eae3f5ba4cd6c,
+16.551,bus1,0,bus1,be43156431d440158e7eae3f5ba4cd6c,
+18.051,bus1,1,bus1,be43156431d440158e7eae3f5ba4cd6c,controlled_pedestrian
+22.051,bus1,0,bus1,be43156431d440158e7eae3f5ba4cd6c,
+26.951,,0,bus1,be43156431d440158e7eae3f5ba4cd6c,
+27.150,,0,,,
+68.251,,0,bus1,62a5292673b24955ba063d5cce665a3c,
+76.251,bus1,0,bus1,62a5292673b24955ba063d5cce665a3c,
+80.251,,0,bus1,62a5292673b24955ba063d5cce665a3c,
+80.551,,0,,,

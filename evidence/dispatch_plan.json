@@ -1,0 +1,20 @@
+{
+  "what": "Uncertainty-aware dispatch (review roadmap: 'optimize outcomes rather than forecast scores alone', 'uncertainty and decision-aware dispatch'). Frozen in a commit before the policy is run on the test seeds.",
+  "finding_before": "Matrix M20261113-150132 (a321fa5, identical episodes): the point forecast crossed dispatch_high = 6 within 1 s of the observed queue in 38 of 40 pairs. After the first trip both policies dispatch the moment the bus is available again, so only the first dispatch can move.",
+  "rule": "predictive mode: request when predicted + margin >= dispatch_high for three consecutive valid forecasts (observed floor, re-arm, cooldown, one outstanding goal unchanged); escalation still clears on the point forecast; margin = quantile q of (truth - forecast) on the validation episodes of the installed model, used only while the forecast's model_id matches",
+  "parameter": {"dispatch_upper_quantile": 0.8, "margin": 1.6593},
+  "choice_of_q": {
+    "data": "development seeds 101-120 of scenario S2 offline (simulator without ROS; before the first dispatch the queue depends only on arrivals); test seeds 1-20 not used",
+    "criterion": "the lead of the first dispatch over the observed queue should not exceed the time the bus needs from the request to the bay (about 30 s: DISPATCH_REQUESTED -> DOCKED in the a321fa5 runs), otherwise the bus arrives before the queue it was sent for",
+    "lead_s_point_forecast": [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "lead_s_q080": [6, 25, 2, 8, 0, 12, 24, 15, 43, 0, 36, 31, 0, 0, 16, 31, 22, 0, 0, 15],
+    "lead_s_q090": [41, 62, 6, 26, 0, 44, 32, 20, 54, 18, 55, 40, 24, 34, 19, 31, 26, 0, 0, 46],
+    "decision": "q = 0.8 (median lead 15 s, 18 of 20 <= 36 s); q = 0.9 has median 31 s and 8 of 20 above 40 s"
+  },
+  "test": {
+    "seeds": "1-20 per scenario, paired with the reactive policy on identical episodes (common random numbers, checked per pair)",
+    "primary": "S2 all-passenger wait (lower bound), paired delta predictive - reactive, 95 % whole-episode bootstrap interval",
+    "secondary": ["S2 boarded wait", "S8 all-passenger and boarded wait", "first-dispatch lead per pair", "boarded passengers and completion rate"],
+    "reporting": "every result is reported as measured, whatever its sign; the point-forecast result of matrix M20261113-150132 stays in the report as the comparison"
+  }
+}

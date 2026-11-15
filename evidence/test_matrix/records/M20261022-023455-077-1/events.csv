@@ -1,0 +1,47 @@
+t_sec,entity_id,event,reason,correlation_id
+-0.018,scenario_runner,RUN_START,seed=42,FAULTS-estop_after_crossing-m29177-s42-20261022-031216
+-0.007,A-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,A-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.012,P1,SLOT_UNKNOWN,was FREE,
+0.013,P2,SLOT_UNKNOWN,was FREE,
+-0.007,B-Cn,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.014,P3,SLOT_UNKNOWN,was FREE,
+-0.007,B-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,Cn-Cs,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,Cn-N,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,Cn-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,Cs-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,D-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.059,scenario_runner,SCENARIO_STARTED,waited=4.6s missing=,FAULTS-estop_after_crossing-m29177-s42-20261022-031216
+-0.007,E-J,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,E-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,P1-P2,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,P2-P3,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,P3-U,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+-0.007,R-W,EDGE_NORMAL,density=0.00 speed=0.00 n=0,
+0.176,passenger_detector,QUEUE_COUNT,count=0 crossing=False,
+0.705,P1,SLOT_FREE,was UNKNOWN,
+0.710,P2,SLOT_FREE,was UNKNOWN,
+0.716,P3,SLOT_FREE,was UNKNOWN,
+1.252,safety_supervisor,STOP_CLEARED,scenario,scenario_runner
+1.276,safety_supervisor,CLEAR_STOP_REQUEST_OK,OK latency_ms=41.07,
+1.280,robot1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+1.281,bus1,SAFETY_CLEAR,LATCHED_STARTUP_LATCHED,
+2.354,scenario_runner,ESCORT_ACCEPTED,,8970d285684643118bb0e8395bbd4886
+2.393,robot1,GOAL_ACCEPTED,escort,fault-01
+2.463,robot,ROUTE_FAILED,R->R EDGE_STATES_STALE latency_ms=0.02,
+2.574,robot1,ROUTE_UNAVAILABLE,EDGE_STATES_STALE,fault-01
+4.342,robot1,READY_REJECTED,NOT_WAITING_FOR_READY,
+4.352,robot1,CONFIRM_READY_REJECTED,NOT_WAITING_FOR_READY latency_ms=30.75,
+4.648,robot,ROUTE_COMPUTED,R->R OK latency_ms=0.96,
+4.695,robot1,ROUTE,TO_PICKUP R cost=0.0s,fault-01
+4.730,robot1,PICKUP_ARRIVED,waiting for /robot/confirm_ready,fault-01
+24.778,robot1,GOAL_ABORT,READY_TIMEOUT,fault-01
+24.818,scenario_runner,ESCORT_RESULT,status=6 reason=READY_TIMEOUT,8970d285684643118bb0e8395bbd4886
+30.111,demand_predictor,PREDICTION_VALID,history=31/31,
+35.111,demand_predictor,DEMAND_INFERENCE,latency_ms=0.0534,
+36.569,scenario_runner,POWER_CUT,ESTOP,
+36.569,scenario_runner,INJECT,estop,
+36.586,safety_supervisor,STOP_LATCHED,ESTOP latency_ms=0.47,
+45.122,demand_predictor,DEMAND_INFERENCE,latency_ms=0.0527,
+55.113,demand_predictor,DEMAND_INFERENCE,latency_ms=0.0493,

@@ -1,0 +1,17 @@
+{
+  "question": "Is the S2 gain of the uncertainty-aware dispatch (forecast + 1.66 >= 6, i.e. forecast >= 4.34) a forecast effect, or only the effect of calling the bus at a smaller queue?",
+  "frozen": "committed before any run of this ablation",
+  "seeds": "S2, seeds 201-220: not used by any earlier matrix (those used 1-20) nor by the choice of q (development seeds 101-120)",
+  "policies": {
+    "predictive": "installed configuration of the tested revision (dispatch_upper_quantile 0.8, observed floor at dispatch_high 6, re-arm)",
+    "reactive-6": "observed queue >= 6 (dispatch_low 4): the baseline of the matrices",
+    "reactive-5": "observed queue >= 5 (dispatch_low 3)",
+    "reactive-4": "observed queue >= 4 (dispatch_low 2)"
+  },
+  "hysteresis": "dispatch_low = dispatch_high - 2, the gap of the 6 / 4 default; no other parameter changes",
+  "no_selection": "all three reactive thresholds are reported; none is chosen on the test seeds",
+  "primary": "all-passenger wait (lower bound), paired delta predictive - reactive-5 and predictive - reactive-4 per seed, 95 % whole-episode bootstrap interval",
+  "secondary": ["boarded wait", "predictive - reactive-6 (replication on fresh seeds)", "reactive-5 / reactive-4 - reactive-6", "identical arrival attempts per pair", "first-dispatch lead"],
+  "decision": "if predictive is lower than both reactive-5 and reactive-4 with intervals below 0, the gain is attributed to the forecast; if a lower reactive threshold is as good or better, the report states that the gain comes from calling earlier and the forecast is not needed for it",
+  "run": "ros2 run smart_hub dispatch_ablation --parallel 3 (test-matrix machinery: attempt IDs, single infrastructure re-run, graph audit)"
+}

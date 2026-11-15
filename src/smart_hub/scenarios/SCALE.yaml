@@ -1,7 +1,9 @@
 # Author: Mikhail Li (12236295)
-# Scalability test (midterm): load grows while the robot drives scripted routes.
-# Scripted agents do not use the crossing lock, so robot trips on shared roads finish
-# before the background cars appear. Watch the dashboard for data age and rates under load.
+# Scalability scenario: load grows while the robot drives scripted routes (presentation
+# only). Scripted agents take the crossing lock; background cars do not, so robot trips on
+# shared roads finish before the cars appear. The number of cars and pedestrians actually
+# placed is limited by free road and walkway space (see scalability_benchmark); data age
+# and topic rates under this load are on the dashboard and in summary.json.
 scenario_id: SCALE
 duration_sec: 180
 events:

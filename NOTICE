@@ -1,0 +1,12 @@
+Songdo Smart Hub (Team D, Smart Mobility Engineering Lab, Inha University, 2026)
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party material
+- src/smart_hub/models/yolox_s_2022nov.onnx: YOLOX-s person detector from the OpenCV Model
+  Zoo (models/object_detection_yolox), Copyright (c) 2021-2022 Megvii Inc., Apache License
+  2.0; licence text in src/smart_hub/models/yolox_s_2022nov.LICENSE.
+- The S1 real-video test uses vtest.avi, which is not stored in this repository. It is the
+  OpenCV sample https://github.com/opencv/opencv/raw/4.x/samples/data/vtest.avi, a view of
+  the PETS 2009 benchmark sequences; use it under the terms of the PETS 2009 dataset
+  (research and education). evidence/s1_video/ holds only our hand counts, the system
+  outputs and the SHA-256 of the clip.

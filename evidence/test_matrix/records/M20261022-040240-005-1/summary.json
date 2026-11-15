@@ -1,0 +1,192 @@
+{
+  "run_id": "FAULTS-m15405-s42-20261022-040329",
+  "scenario_id": "FAULTS",
+  "seed": "42",
+  "elapsed_sec": 35.7,
+  "commit": "unknown",
+  "config_sha256": "c72092517b79",
+  "machine": "Linux x86_64, 8 CPU",
+  "python": "3.12.3",
+  "latency_ms": {
+    "CLEAR_STOP_REQUEST_OK": {
+      "n": 1,
+      "mean": 71.32,
+      "p50": 71.32,
+      "p95": 71.32,
+      "max": 71.32
+    },
+    "CONFIRM_READY_OK": {
+      "n": 1,
+      "mean": 13.38,
+      "p50": 13.38,
+      "p95": 13.38,
+      "max": 13.38
+    },
+    "CROSSING_GRANTED": {
+      "n": 1,
+      "mean": 0.06,
+      "p50": 0.06,
+      "p95": 0.06,
+      "max": 0.06
+    },
+    "ROUTE_COMPUTED": {
+      "n": 5,
+      "mean": 0.16599999999999998,
+      "p50": 0.13,
+      "p95": 0.25,
+      "max": 0.25
+    }
+  },
+  "topic_age_ms": {
+    "/camera/image_raw": {
+      "n": 338,
+      "mean": 21.58071275443787,
+      "p50": 11.606644,
+      "p95": 63.171384,
+      "max": 269.492673
+    },
+    "/crossing/state": {
+      "n": 353,
+      "mean": 9.355216181303117,
+      "p50": 3.640572,
+      "p95": 37.185618,
+      "max": 86.049193
+    },
+    "/hub/demand": {
+      "n": 36,
+      "mean": 5.886852055555555,
+      "p50": 2.616934,
+      "p95": 25.282715,
+      "max": 30.107846
+    },
+    "/hub/queue": {
+      "n": 179,
+      "mean": 66.88754478770949,
+      "p50": 57.257911,
+      "p95": 174.81527,
+      "max": 285.977849
+    },
+    "/hub/safety": {
+      "n": 224,
+      "mean": 10.761446910714286,
+      "p50": 4.879753,
+      "p95": 41.519526,
+      "max": 91.901365
+    },
+    "/hub/vehicles": {
+      "n": 338,
+      "mean": 13.927963609467456,
+      "p50": 6.62974,
+      "p95": 43.171899,
+      "max": 268.331213
+    },
+    "/parking/state": {
+      "n": 72,
+      "mean": 11.437284986111111,
+      "p50": 5.067644,
+      "p95": 40.776551,
+      "max": 79.727915
+    },
+    "/robot/odom": {
+      "n": 676,
+      "mean": 12.417486832840238,
+      "p50": 3.256941,
+      "p95": 46.751822,
+      "max": 396.687672
+    },
+    "/sim/pedestrians": {
+      "n": 338,
+      "mean": 19.397841585798815,
+      "p50": 10.038268,
+      "p95": 57.85701,
+      "max": 269.255958
+    },
+    "/traffic/edges": {
+      "n": 72,
+      "mean": 16.873053125,
+      "p50": 7.079326,
+      "p95": 48.751599,
+      "max": 244.809464
+    }
+  },
+  "topic_rate_hz": {
+    "/hub/queue": 5.01,
+    "/hub/demand": 1.0,
+    "/hub/vehicles": 9.77,
+    "/traffic/edges": 2.0,
+    "/crossing/state": 10.0,
+    "/parking/state": 1.99,
+    "/hub/safety": 10.0,
+    "/robot/odom": 19.56,
+    "/sim/pedestrians": 9.74,
+    "/camera/image_raw": 9.74
+  },
+  "energy": {
+    "iot/barrier": {
+      "power_w": "0.300",
+      "energy_j": "10.080"
+    },
+    "iot/bus_door": {
+      "power_w": "0.200",
+      "energy_j": "6.720"
+    },
+    "iot/led/P1": {
+      "power_w": "0.200",
+      "energy_j": "6.640"
+    },
+    "iot/led/P2": {
+      "power_w": "0.200",
+      "energy_j": "6.640"
+    },
+    "iot/led/P3": {
+      "power_w": "0.200",
+      "energy_j": "6.640"
+    },
+    "iot/slot_sensor/P1": {
+      "power_w": "0.100",
+      "energy_j": "3.360"
+    },
+    "iot/slot_sensor/P2": {
+      "power_w": "0.100",
+      "energy_j": "3.360"
+    },
+    "iot/slot_sensor/P3": {
+      "power_w": "0.100",
+      "energy_j": "3.360"
+    },
+    "iot/camera": {
+      "power_w": "2.500",
+      "energy_j": "84.000"
+    },
+    "bus1": {
+      "power_w": "12.000",
+      "energy_j": "403.200",
+      "distance_m": "0.000",
+      "energy_per_m_j": "0.000"
+    },
+    "robot1": {
+      "power_w": "5.000",
+      "energy_j": "185.537",
+      "distance_m": "3.887",
+      "energy_per_m_j": "47.734"
+    }
+  },
+  "counts": {
+    "collisions": 0,
+    "crossing_conflicts": 0,
+    "safety_interventions": 0,
+    "goals_succeeded": 0,
+    "goals_aborted": 1,
+    "goals_canceled": 0,
+    "goals_rejected": 0,
+    "reroutes": 0,
+    "crossing_grants": 1,
+    "boarded": 0
+  },
+  "queue_wait_sec": {
+    "n": 0
+  },
+  "mission_time_sec": {
+    "n": 0
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "harness_version": "2.5",
+  "killed_node": "robot_manager",
+  "kill_trigger": [
+    "ROUTE",
+    "robot1",
+    "ESCORT",
+    18.0
+  ],
+  "kill_wall_unix": 1794569431.7368343,
+  "kill_t": 22.218,
+  "clock": "kill_t = wall-clock kill time minus (mtime of events.csv minus t of its last event); resolution about 50 ms"
+}

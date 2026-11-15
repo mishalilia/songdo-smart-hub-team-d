@@ -14,9 +14,9 @@ from smart_hub import hub_map
 from smart_hub.iot_devices import Barrier, Door, Led, Sensor
 
 STEP_SEC = 0.05
-ROBOT_RADIUS = 0.20
-VEHICLE_RADIUS = 0.30
-PEDESTRIAN_RADIUS = 0.20
+ROBOT_RADIUS = hub_map.FOOTPRINT_RADIUS_M['robot']
+VEHICLE_RADIUS = hub_map.FOOTPRINT_RADIUS_M['bus']       # bus and background cars
+PEDESTRIAN_RADIUS = hub_map.FOOTPRINT_RADIUS_M['pedestrian']
 COMMAND_TIMEOUT_SEC = 0.5
 SWEEP_STEP_M = 0.05
 EDGE_CORRIDOR_M = 0.5
@@ -44,7 +44,7 @@ ENERGY_MODEL = {
 # Event types that the ROS node executes as service / action calls (test driver).
 DRIVER_EVENTS = {
     'reserve', 'release', 'dock_request', 'escort_request', 'confirm_ready',
-    'clear_stop_request', 'cancel_goal',
+    'clear_stop_request', 'cancel_goal', 'route_request',
 }
 
 
@@ -99,7 +99,14 @@ class World:
     def __init__(self, scenario, seed):
         self.scenario = scenario or {}
         self.seed = int(seed)
-        self.rng = random.Random(self.seed)
+        # Separate random streams (common random numbers). Arrivals draw exactly once per step
+        # from their own stream, so two policies run on one seed see the same passengers at the
+        # same times: how many pedestrians the sensors observe (noise draws per observation, at
+        # the rates of ROS timers) or where earlier passengers stood no longer shifts them.
+        self.rng = random.Random(self.seed)                         # scenario placements
+        self.arrival_rng = random.Random('arrivals-%d' % self.seed)
+        self.spot_rng = random.Random('queue-spots-%d' % self.seed)
+        self.noise_rng = random.Random('sensor-noise-%d' % self.seed)
         self.t = 0.0
         self.duration = float(self.scenario.get('duration_sec', math.inf))
         self.events = sorted(self.scenario.get('events', []), key=lambda e: float(e['t']))
@@ -125,6 +132,7 @@ class World:
         self.camera = Sensor('camera', 'camera')
         self._door_was_open = False
         self.crossing_owner = ''    # from /crossing/state: background cars yield to it
+        self.crossing_unknown = False   # crossing state stale / invalid: nobody may enter
         self.crossing_lock = False  # scripted bus / robot use the crossing lock (scenario_runner)
         self.crossing_wanted = set()  # scripted agents waiting at the edge of C for a grant
         self.entrance = []          # cars waiting at the parking barrier: [client, since]
@@ -246,6 +254,10 @@ class World:
         self._ped_counter += 1
         pid = 'ped%03d' % self._ped_counter
         self.peds[pid] = Pedestrian(pid, x, y, zone, self.t, leave_at)
+        if zone == 'Q':
+            # Every passenger is logged on entry, so waits can be reported for all of them
+            # (boarded, abandoned, still waiting at run end), not only for those who board.
+            self._emit(pid, 'QUEUE_ENTERED', 'x=%.2f y=%.2f' % (x, y))
         return pid
 
     def _random_queue_point(self):
@@ -260,11 +272,11 @@ class World:
         lanes = [(hub_map.NODES[a], hub_map.NODES[b]) for a, b in hub_map.ROBOT_EDGES]
         lane_y = hub_map.NODES['R'][1]
         for _ in range(500):
-            x = self.rng.uniform(xmin + QUEUE_MARGIN_M, xmax - QUEUE_MARGIN_M)
-            if self.rng.random() < 0.5:
-                y = self.rng.uniform(ymin + QUEUE_MARGIN_M, lane_y - LANE_CLEARANCE_M)
+            x = self.spot_rng.uniform(xmin + QUEUE_MARGIN_M, xmax - QUEUE_MARGIN_M)
+            if self.spot_rng.random() < 0.5:
+                y = self.spot_rng.uniform(ymin + QUEUE_MARGIN_M, lane_y - LANE_CLEARANCE_M)
             else:
-                y = self.rng.uniform(lane_y + LANE_CLEARANCE_M, ymax - QUEUE_MARGIN_M)
+                y = self.spot_rng.uniform(lane_y + LANE_CLEARANCE_M, ymax - QUEUE_MARGIN_M)
             if any(_point_segment_distance((x, y), a, b) < LANE_CLEARANCE_M - 1e-9
                    for a, b in lanes):
                 continue
@@ -393,6 +405,7 @@ class World:
     def _ev_spawn_crowd(self, ev):
         """Scalability load: `count` static pedestrians outside Q and C (zone X)."""
         xmin, xmax, ymin, ymax = hub_map.MAP_BOUNDS
+        placed = 0
         for _ in range(int(ev['count'])):
             for _ in range(50):
                 x = self.rng.uniform(xmin + 0.2, xmax - 0.2)
@@ -410,7 +423,10 @@ class World:
                 if all(math.hypot(x - p.x, y - p.y) > 2 * PEDESTRIAN_RADIUS
                        for p in self.peds.values()):
                     self._new_ped('X', x, y)
+                    placed += 1
                     break
+        self._emit('scenario_runner', 'LOAD_SPAWNED',
+                   'pedestrians=%d/%d' % (placed, int(ev['count'])))
 
     def _ev_car_at_entrance(self, ev):
         """Queue a car at the parking barrier; the entrance sensor reports its id."""
@@ -484,11 +500,14 @@ class World:
 
     # ------------------------------------------------------------------ dynamics
     def _arrivals(self):
+        draw = self.arrival_rng.random()             # one draw per step, whatever the rate
         if self.arrival_rate_per_min > 0.0 and \
-                self.rng.random() < self.arrival_rate_per_min / 60.0 * STEP_SEC:
+                draw < self.arrival_rate_per_min / 60.0 * STEP_SEC:
             spot = self._random_queue_point()
             if spot is not None:
                 self._new_ped('Q', *spot)
+            else:
+                self._emit('passenger', 'QUEUE_BALKED', 'queue zone full')
 
     def _expire_pedestrians(self):
         for pid in [k for k, p in self.peds.items() if p.leave_at <= self.t]:
@@ -560,7 +579,7 @@ class World:
             return
         self.crossing_wanted.discard(a.agent_id)
         # Background cars obey the crossing: no entry into C while someone owns it.
-        if a.kind == 'car' and self.crossing_owner and \
+        if a.kind == 'car' and (self.crossing_owner or self.crossing_unknown) and \
                 _footprint_in_c(nx, ny, a.radius) and not _footprint_in_c(a.x, a.y, a.radius):
             a.v = 0.0
             return
@@ -669,7 +688,8 @@ class World:
         for p in sorted(self.peds.values(), key=lambda q: q.ped_id):
             if self.t < p.occluded_until:
                 continue
-            out.append((p.x + self.rng.gauss(0.0, noise_m), p.y + self.rng.gauss(0.0, noise_m)))
+            out.append((p.x + self.noise_rng.gauss(0.0, noise_m),
+                        p.y + self.noise_rng.gauss(0.0, noise_m)))
         return out
 
     def truth_pedestrians(self):
@@ -700,7 +720,8 @@ class World:
             if a.hidden:
                 continue
             noise = 0.0 if a.kind == 'obstacle' else noise_m
-            out.append((a, a.x + self.rng.gauss(0.0, noise), a.y + self.rng.gauss(0.0, noise),
+            out.append((a, a.x + self.noise_rng.gauss(0.0, noise),
+                        a.y + self.noise_rng.gauss(0.0, noise),
                         a.yaw, abs(a.v), self.edge_of(a)))
         return out
 
@@ -717,9 +738,7 @@ def footprint_in_c(agent, margin=0.0):
     return _footprint_in_c(agent.x, agent.y, agent.radius + margin)
 
 
-def _footprint_in_c(x, y, radius):
-    xmin, xmax, ymin, ymax = hub_map.CROSSING_C
-    return xmin - radius <= x <= xmax + radius and ymin - radius <= y <= ymax + radius
+_footprint_in_c = hub_map.footprint_in_crossing
 
 
 def apply_variant(scenario, variant):

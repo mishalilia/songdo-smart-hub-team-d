@@ -37,6 +37,13 @@
   <section class="card">
     <h2>Queue and missions</h2>
     <table id="service"></table>
+    <p class="hint" id="queue"></p>
+  </section>
+  <section class="card">
+    <h2>Crossing C</h2>
+    <table id="crossing"></table>
+    <p class="hint">Two users physically inside C in one 10 Hz ground-truth sample count at
+      once. Car + car is uncontrolled background traffic and is reported, not arbitrated.</p>
   </section>
 </main>
 <script src="hub.js"></script>
@@ -56,7 +63,9 @@ function target(name) {
 function render(m) {
   const run = m.run || {};
   $('#run').textContent = run.run_id
-    ? `${run.scenario_id} · seed ${run.seed} · ${run.elapsed_sec}s · commit ${run.commit} · cfg ${run.config_sha256}`
+    ? `${run.scenario_id} · seed ${run.seed} · ${run.elapsed_sec}s · commit ${
+      String(run.commit).slice(0, 10)} · cfg ${String(run.config_sha256).slice(0, 12)} · ${
+      run.ros_distro} / ${run.rmw}`
     : 'waiting for metrics_logger';
   const c = m.counts || {};
   const tile = (label, v, bad) => `<div class="tile"><div class="v" style="color:${
@@ -66,7 +75,12 @@ function render(m) {
   $('#tiles').innerHTML = [
     tile('mission success', done ? `${ok}/${done}` : '–'),
     tile('collisions', c.collisions, Number(c.collisions) > 0),
-    tile('crossing conflicts', c.crossing_conflicts, Number(c.crossing_conflicts) > 0),
+    tile('crossing: strict occupancy', c.crossing_strict_occupancy,
+         Number(c.crossing_strict_occupancy) > 0),
+    tile('crossing: unauthorized entries', c.crossing_unauthorized_entries,
+         Number(c.crossing_unauthorized_entries) > 0),
+    tile('crossing: token overlaps', c.crossing_token_overlaps,
+         Number(c.crossing_token_overlaps) > 0),
     tile('safety interventions', c.safety_interventions),
     tile('reroutes', c.reroutes),
     tile('crossing grants', c.crossing_grants),
@@ -108,12 +122,32 @@ function render(m) {
         total ? (100 * Number(v.energy_j) / total).toFixed(1) : 0}%"></div></div></td></tr>`)
     .join('') + `<tr><th>total</th><td></td><th class="num">${fmt(total, 1)}</th><td></td><td></td></tr>`;
 
+  const x = m.crossing || {};
+  const names = {controlled_controlled: 'robot / bus + robot / bus', controlled_car: 'robot / bus + car',
+                 controlled_pedestrian: 'robot / bus + pedestrian', car_car: 'car + car',
+                 car_pedestrian: 'car + pedestrian'};
+  $('#crossing').innerHTML = '<tr><th>measure (ground truth, no grace interval)</th><th>count</th></tr>' +
+    Object.entries(names).map(([k, label]) =>
+      `<tr><td>strict occupancy: ${label}</td><td class="num">${x['strict_' + k] ?? 0}</td></tr>`).join('') +
+    `<tr><td>strict occupancy, seconds</td><td class="num">${fmt(x.strict_seconds, 1)}</td></tr>
+     <tr><td>entry without grant (robot / bus)</td><td class="num">${x.entry_no_grant ?? 0}</td></tr>
+     <tr><td>entry with pedestrian inside (robot / bus)</td><td class="num">${x.entry_pedestrian_present ?? 0}</td></tr>
+     <tr><td>car entry against owner</td><td class="num">${x.entry_car_against_owner ?? 0}</td></tr>
+     <tr><td>pedestrian response p95 (ms)</td><td class="num">${fmt(x.pedestrian_response_p95_ms, 0)}</td></tr>
+     <tr><td>pedestrian response unresolved</td><td class="num">${x.pedestrian_response_unresolved ?? 0}</td></tr>`;
+
   const w = m.queue_wait_sec || {}, mt = m.mission_time_sec || {};
-  $('#service').innerHTML = `<tr><th></th><th>n</th><th>p50</th><th>p95</th><th>max</th></tr>
-    <tr><td>queue wait (s)</td><td class="num">${w.n || 0}</td><td class="num">${fmt(w.p50)}</td>
-      <td class="num">${fmt(w.p95)}</td><td class="num">${fmt(w.max)}</td></tr>
-    <tr><td>mission time (s)</td><td class="num">${mt.n || 0}</td><td class="num">${fmt(mt.p50)}</td>
-      <td class="num">${fmt(mt.p95)}</td><td class="num">${fmt(mt.max)}</td></tr>`;
+  const wc = m.queue_wait_censored_sec || {}, wa = m.queue_wait_all_sec || {}, q = m.queue || {};
+  const line = (label, s) => `<tr><td>${label}</td><td class="num">${s.n || 0}</td>
+      <td class="num">${fmt(s.p50)}</td><td class="num">${fmt(s.p95)}</td><td class="num">${fmt(s.max)}</td></tr>`;
+  $('#service').innerHTML = `<tr><th></th><th>n</th><th>p50</th><th>p95</th><th>max</th></tr>` +
+    line('queue wait, boarded (s)', w) + line('still waiting, censored (s)', wc) +
+    line('all passengers, lower bound (s)', wa) + line('mission time (s)', mt);
+  $('#queue').textContent = q.arrived
+    ? `arrived ${q.arrived} · boarded ${q.boarded} · abandoned ${q.abandoned} · waiting ${
+      q.waiting_at_end} · balked ${q.balked} · completion ${fmt(100 * q.completion_rate, 0)}% · clearance ${
+      fmt(100 * q.clearance_rate, 0)}%`
+    : 'no passengers yet';
 }
 
 async function loop() {

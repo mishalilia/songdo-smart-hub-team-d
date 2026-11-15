@@ -37,6 +37,11 @@ MAP_BOUNDS = _rect(_M['bounds'])
 
 OBSTACLE_O = {'center': tuple(_M['obstacle_O']['center']), 'radius': _M['obstacle_O']['radius']}
 
+# Disc footprints (m). The managers, the supervisor, the arbiter, the simulator and the
+# evaluator all take the radii and the crossing test from here, so they cannot disagree.
+FOOTPRINT_RADIUS_M = {'robot': 0.20, 'bus': 0.30, 'car': 0.30, 'obstacle': 0.35,
+                      'pedestrian': 0.20}
+
 BUS_BAY = _M['bus_bay']
 PARKING_SLOTS = tuple(_M['parking_slots'])
 
@@ -64,6 +69,12 @@ def point_in_rect(p, rect):
     x, y = p
     xmin, xmax, ymin, ymax = rect
     return xmin <= x <= xmax and ymin <= y <= ymax
+
+
+def footprint_in_crossing(x, y, radius=0.0):
+    """Return True if a disc footprint of `radius` centred at (x, y) reaches crossing C."""
+    xmin, xmax, ymin, ymax = CROSSING_C
+    return xmin - radius <= x <= xmax + radius and ymin - radius <= y <= ymax + radius
 
 
 def segment_intersects_rect(p, q, rect, inflate=0.0):

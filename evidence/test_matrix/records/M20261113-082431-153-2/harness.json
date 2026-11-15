@@ -1,0 +1,13 @@
+{
+  "harness_version": "2.5",
+  "killed_node": "route_planner",
+  "kill_trigger": [
+    "SCENARIO_STARTED",
+    "scenario_runner",
+    "",
+    0.0
+  ],
+  "kill_wall_unix": 1794569490.8505404,
+  "kill_t": 0.164,
+  "clock": "kill_t = wall-clock kill time minus (mtime of events.csv minus t of its last event); resolution about 50 ms"
+}

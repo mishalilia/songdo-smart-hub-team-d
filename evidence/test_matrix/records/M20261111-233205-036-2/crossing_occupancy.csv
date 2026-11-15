@@ -1,0 +1,7 @@
+t_sec,agents_in_c,pedestrians_in_c,owner,token,occupancy_classes
+0.031,,0,UNKNOWN,,
+0.127,,0,,,
+14.274,,0,robot1,e3950ddf002e4f0ca92650541e3df52a,
+19.873,robot1,0,robot1,e3950ddf002e4f0ca92650541e3df52a,
+44.274,,0,robot1,e3950ddf002e4f0ca92650541e3df52a,
+44.473,,0,,,

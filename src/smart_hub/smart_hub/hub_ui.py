@@ -27,6 +27,7 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from smart_hub import hub_map
+from smart_hub.freshness import stamp_problem, stamp_sec
 from smart_hub.params import check_parameters
 from smart_hub.qos import R1, R10, R100, R1T
 from smart_hub.route_engine import plan
@@ -42,6 +43,10 @@ from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 
 READY_WAIT_SEC = 5.0      # wait this long for a just-started graph before reporting failure
+# Retained state older than this (receipt or observation stamp) is displayed as UNKNOWN.
+STALE_SEC = {'crossing': 1.0, 'queue': 1.0, 'demand': 3.0, 'parking': 2.0}
+UNKNOWN_STATE = {'crossing': {'valid': False}, 'queue': {'valid': False},
+                 'demand': {'valid': False}, 'parking': {'available': None, 'slots': []}}
 CONTENT_TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript',
                  '.css': 'text/css'}
 
@@ -59,11 +64,13 @@ class HubUi(Node):
         self.declare_parameter('host', '0.0.0.0')
         self.declare_parameter('port', 8080)
         self.declare_parameter('web_dir', '')
+        self.declare_parameter('mode', 'sim')       # sim | hardware
         self.declare_parameter('congestion_density_threshold', 0.70)
         check_parameters(self)
 
         self.lock = threading.Lock()
         self.state = {}
+        self.seen = {}        # state key -> (monotonic receipt, observation stamp)
         self.metrics = {}
         self.iot = {}
         self.events = deque(maxlen=60)
@@ -94,7 +101,10 @@ class HubUi(Node):
 
         self.estop_pub = self.create_publisher(Bool, '/hub/estop', R1T)
         self.barrier_pub = self.create_publisher(Bool, '/parking/barrier_request', R1)
-        self.inject_pub = self.create_publisher(String, '/sim/inject', R10)
+        # Simulator injection is a test-only input; it does not exist in hardware mode.
+        self.sim_mode = self.get_parameter('mode').value == 'sim'
+        self.inject_pub = self.create_publisher(String, '/sim/inject', R10) \
+            if self.sim_mode else None
         self.clients_ = {
             'reset': self.create_client(ResetScenario, '/scenario/reset'),
             'clear_stop': self.create_client(ClearSafetyStop, '/safety/clear_stop'),
@@ -108,9 +118,11 @@ class HubUi(Node):
         self.start_http()
 
     # ------------------------------------------------------------------ state cache
-    def put(self, key, value):
+    def put(self, key, value, stamp=None):
         with self.lock:
             self.state[key] = value
+            if stamp is not None:
+                self.seen[key] = (time.monotonic(), stamp_sec(stamp))
 
     def on_vehicles(self, msg):
         self.put('vehicles', [{'id': v.vehicle_id, 'kind': v.kind, 'x': v.pose.x, 'y': v.pose.y,
@@ -122,22 +134,23 @@ class HubUi(Node):
 
     def on_crossing(self, msg):
         self.put('crossing', {'owner': msg.owner_id, 'state': msg.state,
-                              'pedestrian': msg.pedestrian_present, 'valid': msg.valid})
+                              'pedestrian': msg.pedestrian_present, 'valid': msg.valid},
+                 msg.header.stamp)
 
     def on_parking(self, msg):
         self.put('parking', {'available': msg.available_count, 'slots': [
             {'slot': s.slot_id, 'state': s.state, 'vehicle': s.vehicle_id,
-             'reservation': s.reservation_id} for s in msg.slots]})
+             'reservation': s.reservation_id} for s in msg.slots]}, msg.header.stamp)
 
     def on_queue(self, msg):
         self.put('queue', {'count': msg.count, 'valid': msg.valid,
                            'confidence': msg.confidence,
-                           'crossing_occupied': msg.crossing_occupied})
+                           'crossing_occupied': msg.crossing_occupied}, msg.header.stamp)
 
     def on_demand(self, msg):
         self.put('demand', {'predicted': msg.predicted_count, 'baseline': msg.baseline_count,
                             'horizon': msg.horizon_sec, 'model': msg.model_id,
-                            'valid': msg.valid})
+                            'valid': msg.valid}, msg.header.stamp)
 
     def on_bus(self, msg):
         self.put('bus', {'state': msg.state, 'eta': msg.eta_sec, 'eta_valid': msg.eta_valid,
@@ -229,7 +242,7 @@ class HubUi(Node):
             return self.navigate_client.server_is_ready()
         publishers = {'estop': self.estop_pub, 'barrier': self.barrier_pub,
                       'sim': self.inject_pub, 'sim_route': self.inject_pub}
-        if kind in publishers:
+        if publishers.get(kind) is not None:
             return publishers[kind].get_subscription_count() > 0
         return True
 
@@ -280,6 +293,8 @@ class HubUi(Node):
         elif kind == 'barrier':
             self.barrier_pub.publish(Bool(data=bool(cmd['open'])))
             self.log('UI_BARRIER', 'open' if cmd['open'] else 'close')
+        elif kind in ('sim', 'sim_route') and not self.sim_mode:
+            self.log('UI_SIM_REJECTED', 'simulator injection is disabled in hardware mode')
         elif kind == 'sim':
             self.inject(cmd['event'])
         elif kind == 'sim_route':
@@ -370,8 +385,15 @@ class HubUi(Node):
 
     # ------------------------------------------------------------------ HTTP
     def snapshot(self):
+        now, monotonic = self.get_clock().now().nanoseconds / 1e9, time.monotonic()
         with self.lock:
             out = dict(self.state)
+            for key, max_age in STALE_SEC.items():
+                # A retained sample is displayed only while fresh by receipt and by stamp.
+                receipt, stamp = self.seen.get(key, (-1e9, 0.0))
+                if key in out and (monotonic - receipt > max_age or
+                                   stamp_problem(stamp, now, max_age)):
+                    out[key] = dict(UNKNOWN_STATE[key], stale=True)
             out['events'] = list(self.events)[-40:]
             out['mission'] = dict(self.mission)
             out['iot'] = dict(self.iot)
