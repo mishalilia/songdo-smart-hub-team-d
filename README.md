@@ -293,10 +293,20 @@ consecutive predictions ≥ 6 (or the fallback rule), a free bus, no outstanding
 file; `hub_coordinator` triggers on forecast + the 0.8 quantile (+1.66) for three consecutive
 valid forecasts, only while the forecast's `model_id` matches the installed model, and still
 clears escalation on the point forecast. With `dispatch_observed_floor` the observed queue ≥ 6
-also triggers, so the forecast can only make a dispatch earlier. q = 0.8 was chosen offline on
-development seeds 101–120 (the first dispatch should lead the observed queue by no more than the
-≈ 30 s the bus needs to reach the bay) and frozen in `evidence/dispatch_plan.json` before the
-test seeds 1–20 were run.
+also triggers, so within one 1 Hz decision tick the forecast cannot delay a dispatch (between two
+runs the phase of the 1 Hz decision and the 5 Hz queue count can still shift a dispatch by about
+1 s). q = 0.8 was chosen offline on development seeds 101–120 (the first dispatch should lead the
+observed queue by no more than the ≈ 30 s the bus needs to reach the bay) and frozen in
+`evidence/dispatch_plan.json`. Seeds 1–20 had already been run (matrix `M20261113-150132`, where
+the point forecast tied) before the rule existed, so they are not independent.
+
+**Dispatch threshold ablation** (`ros2 run smart_hub dispatch_ablation`, `evidence/dispatch_ablation/`).
+Forecast + 1.66 ≥ 6 is forecast ≥ 4.34, so the gain could be only an earlier call. On fresh seeds
+201–220 the reactive rule was run with `dispatch_high` 6, 5 and 4 (`dispatch_low` = high − 2,
+launch arguments) next to the predictive configuration; the plan, including the decision rule,
+was committed before the runs (`plan.json`). Node parameters of these runs equal those of the
+matrix runs apart from port and seed (commit `cedb8c8` adds only the launch arguments and the
+script).
 
 **Demand model.** Errors are computed per episode; the model is compared with persistence by
 a paired whole-episode bootstrap on the 6 test episodes and on all 30 unseen episodes (the 6
@@ -347,7 +357,7 @@ nodes start with mixed transports and a subscriber may silently receive nothing.
 running launch gets its own ROS domain from a pool of 30 (least recently used first), so
 two cases never share a domain. T03 and T11 run inside the matrix as offline cases; the
 dispatch policies are compared on 2 × `--repeat` paired seeds, the second half reported
-separately as confirmation seeds. Every policy pair must show the same arrival attempts
+separately (second half). Every policy pair must show the same arrival attempts
 (entered or balked, each within 0.25 s): the simulator draws arrivals from their own random
 stream (common random numbers), so a seed fixes the passengers whatever the policy does.
 
@@ -366,8 +376,9 @@ sees as backlog), measured rates and the graph audit.
 
 ## Results
 
-Tested revision `9a47f50`; the submitted snapshot adds only the evidence of these runs and
-documentation (no source file changes). Everything below — the matrix, `colcon test`
+Tested revision `9a47f50`; the dispatch threshold ablation ran on `cedb8c8`, which adds only
+launch arguments and the ablation script (node parameters identical). The submitted snapshot adds
+only the evidence of these runs and documentation. Everything below — the matrix, `colcon test`
 (143 tests, 0 failures), the retraining of the forecast, the whole-graph load sweep, the
 simulator-core benchmark, the S1 video evaluation, the live camera path and the scenario clips —
 was produced on that commit, two launches in parallel on one 8-CPU machine; the host load
@@ -383,7 +394,7 @@ window at the start of the run although `demand_predictor` was discovered with i
 and subscribers; all three passed on the single permitted re-run. No application criterion
 failed. `train_demand_model --episodes 30` on this revision reproduced the committed model byte
 for byte. Every attempt and the records of every failed one are kept; `attempts.csv` holds all
-thirteen matrices since the midterm:
+thirteen matrices since the midterm, plus the ablation:
 
 | Matrix | Harness | Commit | Cases | First attempt | Eventual | Notes |
 |--------|---------|--------|-------|---------------|----------|-------|
@@ -396,6 +407,7 @@ thirteen matrices since the midterm:
 | `M20261113-082431` / `-121230` | 2.5 | `b0f176a` | 156 / 30 | 148/156, 28/30 | 153/156, 30/30 | 3 cases failed the graph audit twice under load from another workload (load average 16–18); passed in a supplementary matrix on the same commit (`supplementary/`). Policy pairs did not see the same passengers (one random stream for arrivals and sensor noise) |
 | `M20261113-150132` | 2.6 | `a321fa5` | 176 | 174/176 | 176/176 | identical episodes; point-forecast dispatch: tie with reactive (S2 Δ +0.0 s, S8 +0.3 s) |
 | `M20261114-040405` | 2.6 | `9a47f50` | 176 | 173/176 | 176/176 | final, above: uncertainty-aware dispatch |
+| `A20261115-061707` | 2.6 | `cedb8c8` | 80 | 79/80 | 79/80 | dispatch threshold ablation (S2, seeds 201–220); 1 application failure: reactive at 4, seed 212, entry while C turned UNKNOWN (`evidence/dispatch_ablation/`) |
 
 What changed between `b0f176a` and `a321fa5` (all found in the evidence of the earlier matrices):
 arrivals in the simulator draw from their own random stream, so both policies on one seed see
@@ -425,22 +437,26 @@ were run.
 | S9 / faults (e-stop, odometry gap, camera silence × 5 mission phases) | six e-stop runs (S9 and five phases): zero command 0.21–2.45 ms after e-stop receipt (requirement 200 ms), measured standstill 29–47 ms, observer delay 1.1–4.9 ms; reset rejected while a sensor is stale, accepted after recovery; every fault stops or aborts safely |
 | Node kills (10 runs + planner) | zero output 0.52 ± 0.03 s after the kill of `robot_manager` or `safety_supervisor` (0.5 s watchdog plus one cycle); planner kill → `GOAL_ABORT PLANNER_UNAVAILABLE` |
 | Dispatch service (re-arm after a served mission) | S8: 240 / 240 boarded in 20 episodes per policy (midterm: 40 in 10), completion 0.69 / 0.69 (midterm 0.24); all-passenger wait lower bound 134 / 134 s (midterm 165 s) |
-| **Dispatch policy, rising demand (S2, 20 paired seeds)** | identical arrival attempts in 19 of 20 pairs (seed 13: all common attempts match; the predictive record ends 2 s before the reactive run's last arrival at 358.2 s). **Uncertainty-aware dispatch lowers the wait: all passengers (lower bound) Δ = W_predictive − W_reactive −7.0 s, 95 % interval −10.0 .. −4.3, predictive lower in 18 of 20; boarded only −15.3 s (−21.8 .. −9.5)**. Confirmation seeds 11–20 alone: −6.7 s (−11.0 .. −3.0), boarded −13.4 s (−21.7 .. −5.9). The forecast dispatched first in 16 seeds (median lead 20.6 s, Δ −8.6 s there), within 1 s in 3, 1.2 s later in 1 |
+| **Dispatch policy, rising demand (S2)** | Matrix, seeds 1–20 (seen before the rule was made): identical arrival attempts in 19 of 20 pairs (seed 13: all common attempts match; the predictive record ends 2 s before the last arrival). Predictive (forecast + 1.66) vs reactive at 6: all passengers −7.0 s (−10.0 .. −4.3), boarded −15.3 s (−21.8 .. −9.5), lower in 18 of 20. **Ablation, fresh seeds 201–220 (20 of 20 pairs identical): vs reactive at 6 −7.2 s (−10.1 .. −4.5), replicated; vs reactive at 5 +1.1 s (−1.0 .. +3.1), a tie; vs reactive at 4 +5.2 s (+3.1 .. +7.4), worse (19 pairs). Reactive at 4 vs at 6: −12.5 s (−15.9 .. −9.2). The gain comes from calling the bus earlier; the forecast is not needed for it** |
 | Dispatch policy, step surge (S8, 20 paired seeds) | identical arrival attempts in 20 of 20 pairs. First dispatch within 1 s in all 20 seeds: the jump to seven people is observed, not forecast, so the forecast cannot lead. All passengers Δ +0.3 s (−0.1 .. +0.6), boarded +0.5 s (+0.1 .. +0.8): a tie, with a half-second disadvantage on boarded passengers from ROS timing |
 | Energy (analytical model, not measured; equal duration, equal service) | S8 (299 s): bus 4360 / 4377 J, robot 1563 / 1563 J per run; bus + robot per boarded passenger 494 / 495 J (midterm, one trip: 1363 J). S2 (358 s): 612 / 612 J per boarded passenger |
 | Whole-graph load (`evidence/graph_load.csv`, full launch alone) | up to `saturated` (400 pedestrians and 100 cars requested, 153 and 25 placed): all 14 nodes together 187 → 238 % of one core, busiest node `scenario_runner` ≤ 47 %; receipt age p95 ≤ 12 ms for `/hub/vehicles`, ≤ 4.3 ms for `/hub/safety`, ≤ 29 ms for `/camera/image_raw`; graph audit passed at every level. Why 23–25 cars: the vehicle ring A–N–Cn–B–U–E–J–Cs is 24.0 m of road, a car takes 0.6 m plus clearance and may not appear inside C, so random placement saturates at about one car per metre |
 | Simulator core (`evidence/scalability.csv`, world step only) | fully placed up to 15 cars + 60 pedestrians: step p95 0.38 ms, p99 0.42 ms. The assignment asks for one bus and one robot; 100 cars were requested only to find the placement limit of the map: 23 cars and 146 of 400 pedestrians fit — not a 100-car result |
 
-**When does each policy win?** The forecast wins when demand *rises* and the bus is free: in S2
-the upper forecast bound crosses 6 before the queue does and the first dispatch moves earlier by a
-median 20.6 s; every later trip moves with it, because after the first trip both policies
-redispatch as soon as the bus returns. With the point forecast (matrix `M20261113-150132`) there
-was no lead and no benefit (S2 Δ +0.0 s): a ridge model fitted for MAE under-predicts a rising
-queue, so the decision has to use the forecast's uncertainty, not only its mean. The forecast
-cannot win on a *step* surge (S8): seven people appear at once, the observed queue already
-triggers, and both policies dispatch within the same second. Limits on any gain: a bus boards at
-most four passengers per stop (8–13 of 17–25 arrivals board in an S2 episode under either policy),
-and only dispatch timing can change.
+**When does each policy win?** Under rising demand (S2) calling the bus at a smaller queue wins:
+reactive at 4 is the best of the tested rules, reactive at 5 ties the forecast, and the forecast's
+upper bound (≈ forecast ≥ 4.34) beats the strict reactive rule at 6 only because it calls earlier.
+The point forecast gave no lead at all (S2 Δ +0.0 s in `M20261113-150132`): a ridge model fitted
+for MAE under-predicts a rising queue and crosses 6 together with the queue. On a step surge (S8)
+seven people appear at once and every rule dispatches in the same second. After the first trip
+all rules redispatch as soon as the bus returns; the bus boards at most four per stop
+(8–13 of 17–25 arrivals board in an S2 episode under either policy). The forecast is more accurate
+than persistence (T03), but in these scenarios that accuracy does not buy a better dispatch than
+a lower observed threshold, as 9.4 warns. One reactive-4 run (seed 212) failed a safety criterion:
+the bus entered C at 120.99 s with a valid token in the 100 ms sample in which the crossing state
+turned UNKNOWN (camera frozen at 120 s, 1 s staleness); recorded as an application failure in
+`evidence/dispatch_ablation/attempts.csv` and listed as a limitation (a vehicle already at the
+boundary when C becomes unknown).
 
 Repeated runs, mean ± standard deviation (n runs): S3 position error 0.101 ± 0.023 m, yaw
 0.011 ± 0.075 rad, ETA error at 5 m −0.74 ± 0.32 s (10); S7 arrival error 0.095 ± 0.002 m,
