@@ -1,0 +1,45 @@
+# Author: Maftuna Khalimjonova (12236681)
+# T16-T18 fault injection during a robot escort (assignment 16).
+# Variants inject faults at different mission phases (16.3: each fault five times):
+# waiting for readiness, driving to the crossing, inside C, after C, near D.
+# Node crashes (robot_manager, safety_supervisor,
+# route_planner) are injected by the test matrix runner killing the process.
+scenario_id: FAULTS
+duration_sec: 120
+events:
+  - {t: 1.0,  type: clear_stop_request}
+  - {t: 2.0,  type: escort_request, request_id: fault-01, pickup: R, destination: D}
+  - {t: 4.0,  type: confirm_ready}
+variants:
+  parking_sensor_stale:
+    - {t: 5.0,  type: disconnect_slot_sensor, slot: P2}
+  estop_waiting:
+    - {t: 3.0, type: estop, value: true}
+  estop_to_crossing:
+    - {t: 8.0, type: estop, value: true}
+  estop_in_crossing:
+    - {t: 22.0, type: estop, value: true}
+  estop_after_crossing:
+    - {t: 36.0, type: estop, value: true}
+  estop_near_destination:
+    - {t: 44.0, type: estop, value: true}
+  odometry_gap_waiting:
+    - {t: 3.0, type: freeze_odometry, duration_sec: 2.0}
+  odometry_gap_to_crossing:
+    - {t: 8.0, type: freeze_odometry, duration_sec: 2.0}
+  odometry_gap_in_crossing:
+    - {t: 22.0, type: freeze_odometry, duration_sec: 2.0}
+  odometry_gap_after_crossing:
+    - {t: 36.0, type: freeze_odometry, duration_sec: 2.0}
+  odometry_gap_near_destination:
+    - {t: 44.0, type: freeze_odometry, duration_sec: 2.0}
+  camera_silence_waiting:
+    - {t: 6.0, type: freeze_camera, duration_sec: 4.0}
+  camera_silence_to_crossing:
+    - {t: 8.0, type: freeze_camera, duration_sec: 4.0}
+  camera_silence_in_crossing:
+    - {t: 22.0, type: freeze_camera, duration_sec: 4.0}
+  camera_silence_after_crossing:
+    - {t: 36.0, type: freeze_camera, duration_sec: 4.0}
+  camera_silence_near_destination:
+    - {t: 44.0, type: freeze_camera, duration_sec: 4.0}
