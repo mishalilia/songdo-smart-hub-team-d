@@ -252,3 +252,22 @@ def test_simulated_devices_and_interlocks():
     run_until(w, 2.0)
     assert w.leds['P1'].colour == 'RED'
     assert {d.name for d in w.devices()} >= {'barrier', 'bus_door', 'camera', 'led/P1'}
+
+
+def test_slow_vehicles_never_spawn_on_top_of_a_car_and_keep_moving():
+    scenario = {'scenario_id': 'S5', 'duration_sec': 75,
+                'initial_vehicles': [{'id': 'car1', 'route': ['Cs', 'J'], 'speed_mps': 0.35}],
+                'events': [{'t': 20.0, 'type': 'spawn_slow_vehicles', 'edge': 'Cs-J', 'count': 3,
+                            'speed_mps': 0.10}]}
+    w = World(scenario, 42)
+    for _ in range(int(round(21.0 / STEP_SEC))):
+        w.step()
+    slow = [a for a in w.agents.values() if a.agent_id.startswith('Cs-J_slow')]
+    assert len(slow) == 3
+    moving = {a.agent_id: 0 for a in slow}
+    steps = int(round(4.0 / STEP_SEC))
+    for _ in range(steps):
+        w.step()
+        for a in slow:
+            moving[a.agent_id] += a.v > 0.0
+    assert all(n > steps // 2 for n in moving.values())             # not deadlocked

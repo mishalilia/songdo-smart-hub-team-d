@@ -376,11 +376,20 @@ class World:
         a, b = ev['edge'].split('-')
         count = int(ev.get('count', 1))
         for i in range(count):
-            self._ev_spawn_car({
-                'id': '%s_slow%d' % (ev['edge'], i), 'route': [a, b],
-                'speed_mps': ev.get('speed_mps', 0.10),
-                'start_fraction': 0.3 + (i + 0.5) / count * 0.6,   # outside crossing C
-            })
+            car_id = '%s_slow%d' % (ev['edge'], i)
+            preferred = 0.3 + (i + 0.5) / count * 0.6               # outside crossing C
+            # A car placed on top of another one could never move (headway check), so take
+            # the free spot nearest to the preferred one, still outside C.
+            spots = sorted((0.15 + 0.05 * k for k in range(17)), key=lambda f: abs(f - preferred))
+            for fraction in [preferred] + spots:
+                self._ev_spawn_car({'id': car_id, 'route': [a, b], 'start_fraction': fraction,
+                                    'speed_mps': ev.get('speed_mps', 0.10)})
+                car = self.agents[car_id]
+                if not self._collides(car, car.x, car.y):
+                    break
+            else:
+                del self.agents[car_id]
+                self._emit(car_id, 'SPAWN_SKIPPED', 'no free spot on %s' % ev['edge'])
 
     def _ev_spawn_random_cars(self, ev):
         """Scalability load: `count` cars circling the vehicle ring, all one way."""
