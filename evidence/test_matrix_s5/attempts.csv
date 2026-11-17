@@ -1,0 +1,12 @@
+harness_version,matrix_id,attempt_id,attempt,commit,test,scenario,variant,seed,mode,run_id,passed,failure_class,superseded_by,details
+2.6,M20261117-023810,M20261117-023810-002-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,2,predictive,S5_FREE-m49002-s2-20261117-023816,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-001-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,1,predictive,S5_FREE-m49001-s1-20261117-023816,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-000-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09/T10,S5,,42,predictive,S5-m49000-s42-20261117-023816,True,,,"CONGESTED 0.13s, UNKNOWN 1.03s, BLOCKED 0.13s after stimulus; congestion precision 1.00 recall 1.00"
+2.6,M20261117-023810,M20261117-023810-004-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,4,predictive,S5_FREE-m49004-s4-20261117-023924,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-003-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,3,predictive,S5_FREE-m49003-s3-20261117-023924,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-005-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,5,predictive,S5_FREE-m49005-s5-20261117-023942,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-007-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,7,predictive,S5_FREE-m49007-s7-20261117-024033,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-006-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,6,predictive,S5_FREE-m49006-s6-20261117-024033,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-008-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,8,predictive,S5_FREE-m49008-s8-20261117-024052,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-009-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,9,predictive,S5_FREE-m49009-s9-20261117-024143,True,,,0 false congestion / blockage labels in free flow
+2.6,M20261117-023810,M20261117-023810-010-1,1,eb7c263d6a6e44b314ae8f1983b6406eaacb8cef,T09,S5_FREE,,10,predictive,S5_FREE-m49010-s10-20261117-024143,True,,,0 false congestion / blockage labels in free flow
